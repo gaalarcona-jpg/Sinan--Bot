@@ -7,6 +7,7 @@ const API_KEY = process.env.WHATSAPP_API_KEY;
 const API_URL = "https://waba-v2.360dialog.io/v1/messages";
 const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean);
 const RODRIGO_NUMBER = process.env.RODRIGO_NUMBER;
+const NAMESPACE = "48797d40_3193_4dae_a78c_700d8fa75a35";
 const TEMPLATE_NAME = "sinan_bot_respuesta";
 const TEMPLATE_LANG = "es_CL";
 
@@ -17,21 +18,16 @@ const fmtMonto = (n) => "$" + Math.round(n).toLocaleString("es-CL");
 
 async function sendMsg(to, body) {
   try {
-    const res = await axios.post(API_URL,
+    await axios.post(API_URL,
       { to, type: "text", text: { body, preview_url: false } },
       { headers: { "D360-API-KEY": API_KEY, "Content-Type": "application/json" } }
     );
-    console.log("Enviado OK a", to);
+    console.log("Texto enviado a", to);
     return true;
   } catch(err) {
-    const status = err.response?.status;
-    const data = err.response?.data;
-    console.error("Error al enviar texto:", status, JSON.stringify(data));
-    if (status === 400 || status === 403) {
-      console.log("Ventana cerrada — usando plantilla para", to);
-      return sendTemplate(to);
-    }
-    return false;
+    console.error("Error texto:", err.response?.status, JSON.stringify(err.response?.data));
+    console.log("Intentando plantilla para", to);
+    return sendTemplate(to);
   }
 }
 
@@ -41,7 +37,7 @@ async function sendTemplate(to) {
       to,
       type: "template",
       template: {
-        namespace: "",
+        namespace: NAMESPACE,
         name: TEMPLATE_NAME,
         language: { policy: "deterministic", code: TEMPLATE_LANG },
         components: []
@@ -63,7 +59,7 @@ function parsearGasto(texto) {
   const partes = texto.split("/").map(p => p.trim());
   const errores = [];
   if (partes.length < 5) {
-    const campos = ["Obra", "Etapa", "Proveedor", "Monto", "Descripción"];
+    const campos = ["Obra","Etapa","Proveedor","Monto","Descripción"];
     for (let i = partes.length; i < 5; i++) errores.push(campos[i]);
     return { ok: false, errores, partes };
   }
@@ -71,7 +67,7 @@ function parsearGasto(texto) {
   const descripcion = descParts.join(" / ");
   const monto = parseInt(montoRaw.replace(/[$.]/g, ""));
   if (isNaN(monto) || monto <= 0) return { ok: false, errores: ["Monto inválido (ej: 1166311)"], partes };
-  const obrasValidas = ["codegua", "rancagua", "peñaflor"];
+  const obrasValidas = ["codegua","rancagua","peñaflor"];
   if (!obrasValidas.some(o => obra.toLowerCase().includes(o)))
     return { ok: false, errores: [`Obra no reconocida: "${obra}" — usa Codegua, Rancagua o Peñaflor`], partes };
   return { ok: true, obra, etapa: etapa.toUpperCase(), proveedor, monto, descripcion };
@@ -79,10 +75,10 @@ function parsearGasto(texto) {
 
 function parsearPago(texto) {
   const partes = texto.split("/").map(p => p.trim());
-  if (partes.length < 3) return { ok: false, msg: "Formato: pago / ID / monto\nEj: pago / 3 / 600000" };
+  if (partes.length < 3) return { ok: false, msg: "Formato: pago / ID / monto" };
   const id = parseInt(partes[1]);
   const monto = parseInt(partes[2].replace(/[$.]/g, ""));
-  if (isNaN(id)) return { ok: false, msg: "ID de gasto inválido" };
+  if (isNaN(id)) return { ok: false, msg: "ID inválido" };
   if (isNaN(monto) || monto <= 0) return { ok: false, msg: "Monto inválido" };
   return { ok: true, id, monto };
 }
@@ -96,13 +92,13 @@ function generarResumen() {
     if (!porObra[key]) porObra[key] = { pendiente: 0, pagado: 0 };
     porObra[key][g.estado] += g.monto;
   });
-  let t = `📊 *SINAN — Resumen operacional*\n📅 ${new Date().toLocaleDateString("es-CL")}\n\n`;
-  if (!Object.keys(porObra).length) t += "Sin gastos registrados aún.\n";
-  else Object.entries(porObra).forEach(([obra, d]) => {
-    t += `🏗️ *${obra}*\n  ✅ Pagado: ${fmtMonto(d.pagado)}\n  ⏳ Pendiente: ${fmtMonto(d.pendiente)}\n`;
+  let t = `📊 *SINAN — Resumen*\n📅 ${new Date().toLocaleDateString("es-CL")}\n\n`;
+  if (!Object.keys(porObra).length) t += "Sin gastos registrados.\n";
+  else Object.entries(porObra).forEach(([o, d]) => {
+    t += `🏗️ *${o}*\n  ✅ Pagado: ${fmtMonto(d.pagado)}\n  ⏳ Pendiente: ${fmtMonto(d.pendiente)}\n`;
   });
-  t += `\n━━━━━━━━━━\n⏳ Total pendiente: ${fmtMonto(pendientes.reduce((s,g)=>s+g.monto,0))} (${pendientes.length})\n`;
-  t += `✅ Total pagado: ${fmtMonto(pagados.reduce((s,g)=>s+g.monto,0))} (${pagados.length})`;
+  t += `\n━━━━━━━━━━\n⏳ Pendiente: ${fmtMonto(pendientes.reduce((s,g)=>s+g.monto,0))} (${pendientes.length})\n`;
+  t += `✅ Pagado: ${fmtMonto(pagados.reduce((s,g)=>s+g.monto,0))} (${pagados.length})`;
   return t;
 }
 
