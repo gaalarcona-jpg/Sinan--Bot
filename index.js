@@ -14,7 +14,7 @@ let gastoIdCounter = 1;
 const fmtMonto = (n) => "$" + Math.round(n).toLocaleString("es-CL");
 
 function sendMsg(to, body) {
-  return axios.post(API_URL, { messaging_product: "whatsapp", to, type: "text", text: { body } },
+  return axios.post(API_URL, { to, type: "text", text: { body } },
     { headers: { "D360-API-KEY": TOKEN_360, "Content-Type": "application/json" } }
   ).catch(err => console.error("Error:", err.message));
 }
@@ -95,7 +95,11 @@ app.post("/webhook", async (req, res) => {
     if (msg.type !== "text") return;
     const texto = msg.text?.body?.trim() || "";
     const from = msg.from;
-    if (!isAuthorized(from)) return;
+    console.log("Mensaje recibido de:", from, "->", texto);
+    if (!isAuthorized(from)) {
+      console.log("Número no autorizado:", from);
+      return;
+    }
     const lower = texto.toLowerCase();
     const gary = isGary(from);
 
