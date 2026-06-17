@@ -4,7 +4,7 @@ const app = express();
 app.use(express.json());
 
 const TOKEN_360 = process.env.TOKEN_360;
-const API_URL   = "https://waba.360dialog.io/v1/messages";
+const API_URL   = "https://waba-v2.360dialog.io/v1/messages";
 const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean);
 const RODRIGO_NUMBER = process.env.RODRIGO_NUMBER;
 
