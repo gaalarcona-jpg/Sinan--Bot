@@ -13,10 +13,20 @@ let gastoIdCounter = 1;
 
 const fmtMonto = (n) => "$" + Math.round(n).toLocaleString("es-CL");
 
-function sendMsg(to, body) {
-  return axios.post(API_URL, { to, type: "text", text: { body } },
-    { headers: { "D360-API-KEY": TOKEN_360, "Content-Type": "application/json" } }
-  ).catch(err => console.error("Error:", err.message));
+async function sendMsg(to, body) {
+  try {
+    const payload = { to, type: "text", text: { body, preview_url: false } };
+    console.log("Enviando a:", to, "payload:", JSON.stringify(payload));
+    console.log("TOKEN:", TOKEN_360 ? TOKEN_360.substring(0,8)+"..." : "NO DEFINIDO");
+    const res = await axios.post(API_URL, payload, {
+      headers: { "D360-API-KEY": TOKEN_360, "Content-Type": "application/json" }
+    });
+    console.log("Enviado OK:", res.status);
+  } catch(err) {
+    console.error("Error status:", err.response?.status);
+    console.error("Error data:", JSON.stringify(err.response?.data));
+    console.error("Error msg:", err.message);
+  }
 }
 
 function isGary(n) { return GARY_NUMBERS.includes(n); }
@@ -89,17 +99,18 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
+    console.log("Webhook recibido:", JSON.stringify(body).substring(0, 300));
     const messages = body?.messages || body?.entry?.[0]?.changes?.[0]?.value?.messages;
     if (!messages?.length) return;
     const msg = messages[0];
     if (msg.type !== "text") return;
     const texto = msg.text?.body?.trim() || "";
     const from = msg.from;
-    console.log("Mensaje recibido de:", from, "->", texto);
-    if (!isAuthorized(from)) {
-      console.log("Número no autorizado:", from);
-      return;
-    }
+    console.log("De:", from, "->", texto);
+    console.log("GARY_NUMBERS:", GARY_NUMBERS);
+    console.log("RODRIGO_NUMBER:", RODRIGO_NUMBER);
+    console.log("isAuthorized:", isAuthorized(from));
+    if (!isAuthorized(from)) return;
     const lower = texto.toLowerCase();
     const gary = isGary(from);
 
@@ -111,8 +122,8 @@ app.post("/webhook", async (req, res) => {
       const pago = parsearPago(texto);
       if (!pago.ok) return sendMsg(from, `❌ ${pago.msg}`);
       const gasto = gastos.find(g => g.id === pago.id);
-      if (!gasto) return sendMsg(from, `❌ No existe ID ${pago.id}. Usa *pendientes* para ver los disponibles.`);
-      if (gasto.estado === "pagado") return sendMsg(from, `⚠️ ID ${pago.id} ya fue pagado (${fmtMonto(gasto.monto)})`);
+      if (!gasto) return sendMsg(from, `❌ No existe ID ${pago.id}.`);
+      if (gasto.estado === "pagado") return sendMsg(from, `⚠️ ID ${pago.id} ya fue pagado`);
       gasto.estado = "pagado"; gasto.montoPagado = pago.monto; gasto.fechaPago = new Date().toLocaleDateString("es-CL");
       let r = `✅ *Pago registrado*\nID: ${gasto.id} · ${gasto.obra} ${gasto.etapa}\nProveedor: ${gasto.proveedor}\nMonto: ${fmtMonto(pago.monto)}\nFecha: ${gasto.fechaPago}`;
       if (pago.monto !== gasto.monto) r += `\n⚠️ Diferencia: registrado ${fmtMonto(gasto.monto)} vs pagado ${fmtMonto(pago.monto)}`;
@@ -122,13 +133,9 @@ app.post("/webhook", async (req, res) => {
     if (texto.includes("/")) {
       const parsed = parsearGasto(texto);
       if (!parsed.ok) {
-        let r = `❌ *Formato incorrecto*\n\n`;
-        if (parsed.errores.length) { r += `Falta:\n`; parsed.errores.forEach(e => r += `  • ${e}\n`); }
-        r += `\n📝 Formato correcto:\nObra / Etapa / Proveedor / Monto / Descripción\n\nEj: Codegua / E1 / Yolito / 1166311 / Fierros`;
-        if (parsed.partes?.length) {
-          r += `\n\n📋 Lo que recibí:\n`;
-          ["Obra","Etapa","Proveedor","Monto","Descripción"].forEach((c,i) => { if (parsed.partes[i]) r += `  ${c}: ${parsed.partes[i]}\n`; });
-        }
+        let r = `❌ *Formato incorrecto*\n\nFalta:\n`;
+        parsed.errores.forEach(e => r += `  • ${e}\n`);
+        r += `\nEj: Codegua / E1 / Yolito / 1166311 / Fierros`;
         return sendMsg(from, r);
       }
       const gasto = { id: gastoIdCounter++, obra: parsed.obra, etapa: parsed.etapa, proveedor: parsed.proveedor, monto: parsed.monto, descripcion: parsed.descripcion, fecha: new Date().toLocaleDateString("es-CL"), registradoPor: gary ? "Gary" : "Rodrigo", estado: "pendiente" };
@@ -148,7 +155,7 @@ app.post("/webhook", async (req, res) => {
       return sendMsg(from, r);
     }
 
-    if (texto.length > 3) sendMsg(from, `🤖 No entendí.\n\nUsa *ayuda* para ver los comandos disponibles.`);
+    if (texto.length > 3) sendMsg(from, `🤖 No entendí.\n\nUsa *ayuda* para ver los comandos.`);
   } catch (err) { console.error("Error webhook:", err.message); }
 });
 
