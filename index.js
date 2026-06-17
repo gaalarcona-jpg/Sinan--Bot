@@ -3,10 +3,12 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-const API_KEY   = process.env.WHATSAPP_API_KEY;
-const API_URL   = "https://waba-v2.360dialog.io/v1/messages";
+const API_KEY = process.env.WHATSAPP_API_KEY;
+const API_URL = "https://waba-v2.360dialog.io/v1/messages";
 const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean);
 const RODRIGO_NUMBER = process.env.RODRIGO_NUMBER;
+const TEMPLATE_NAME = "sinan_bot_respuesta";
+const TEMPLATE_LANG = "es_CL";
 
 const gastos = [];
 let gastoIdCounter = 1;
@@ -19,9 +21,37 @@ async function sendMsg(to, body) {
       { to, type: "text", text: { body, preview_url: false } },
       { headers: { "D360-API-KEY": API_KEY, "Content-Type": "application/json" } }
     );
-    console.log("Enviado OK a", to, "status:", res.status);
+    console.log("Enviado OK a", to);
+    return true;
   } catch(err) {
-    console.error("Error al enviar:", err.response?.status, JSON.stringify(err.response?.data));
+    const status = err.response?.status;
+    const data = err.response?.data;
+    console.error("Error al enviar texto:", status, JSON.stringify(data));
+    if (status === 400 || status === 403) {
+      console.log("Ventana cerrada — usando plantilla para", to);
+      return sendTemplate(to);
+    }
+    return false;
+  }
+}
+
+async function sendTemplate(to) {
+  try {
+    await axios.post(API_URL, {
+      to,
+      type: "template",
+      template: {
+        namespace: "",
+        name: TEMPLATE_NAME,
+        language: { policy: "deterministic", code: TEMPLATE_LANG },
+        components: []
+      }
+    }, { headers: { "D360-API-KEY": API_KEY, "Content-Type": "application/json" } });
+    console.log("Plantilla enviada a", to);
+    return true;
+  } catch(err) {
+    console.error("Error plantilla:", err.response?.status, JSON.stringify(err.response?.data));
+    return false;
   }
 }
 
