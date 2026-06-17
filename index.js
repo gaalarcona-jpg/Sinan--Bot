@@ -3,7 +3,7 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-const TOKEN_360 = process.env.TOKEN_360;
+const API_KEY   = process.env.WHATSAPP_API_KEY;
 const API_URL   = "https://waba-v2.360dialog.io/v1/messages";
 const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean);
 const RODRIGO_NUMBER = process.env.RODRIGO_NUMBER;
@@ -15,17 +15,13 @@ const fmtMonto = (n) => "$" + Math.round(n).toLocaleString("es-CL");
 
 async function sendMsg(to, body) {
   try {
-    const payload = { to, type: "text", text: { body, preview_url: false } };
-    console.log("Enviando a:", to, "payload:", JSON.stringify(payload));
-    console.log("TOKEN:", TOKEN_360 ? TOKEN_360.substring(0,8)+"..." : "NO DEFINIDO");
-    const res = await axios.post(API_URL, payload, {
-      headers: { "D360-API-KEY": TOKEN_360, "Content-Type": "application/json" }
-    });
-    console.log("Enviado OK:", res.status);
+    const res = await axios.post(API_URL,
+      { to, type: "text", text: { body, preview_url: false } },
+      { headers: { "D360-API-KEY": API_KEY, "Content-Type": "application/json" } }
+    );
+    console.log("Enviado OK a", to, "status:", res.status);
   } catch(err) {
-    console.error("Error status:", err.response?.status);
-    console.error("Error data:", JSON.stringify(err.response?.data));
-    console.error("Error msg:", err.message);
+    console.error("Error al enviar:", err.response?.status, JSON.stringify(err.response?.data));
   }
 }
 
@@ -71,7 +67,7 @@ function generarResumen() {
     porObra[key][g.estado] += g.monto;
   });
   let t = `📊 *SINAN — Resumen operacional*\n📅 ${new Date().toLocaleDateString("es-CL")}\n\n`;
-  if (!Object.keys(porObra).length) { t += "Sin gastos registrados aún.\n"; }
+  if (!Object.keys(porObra).length) t += "Sin gastos registrados aún.\n";
   else Object.entries(porObra).forEach(([obra, d]) => {
     t += `🏗️ *${obra}*\n  ✅ Pagado: ${fmtMonto(d.pagado)}\n  ⏳ Pendiente: ${fmtMonto(d.pendiente)}\n`;
   });
@@ -85,7 +81,7 @@ function listarPendientes() {
   if (!p.length) return "✅ No hay gastos pendientes.";
   let t = `⏳ *Gastos pendientes:*\n\n`;
   p.forEach(g => { t += `🔹 *ID ${g.id}* — ${g.obra} ${g.etapa}\n   ${g.proveedor} · ${fmtMonto(g.monto)}\n   ${g.descripcion} · ${g.fecha}\n\n`; });
-  t += `Para pagar:\n*pago / ID / monto*`;
+  t += `Para pagar: *pago / ID / monto*`;
   return t;
 }
 
@@ -99,18 +95,14 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
-    console.log("Webhook recibido:", JSON.stringify(body).substring(0, 300));
     const messages = body?.messages || body?.entry?.[0]?.changes?.[0]?.value?.messages;
     if (!messages?.length) return;
     const msg = messages[0];
     if (msg.type !== "text") return;
     const texto = msg.text?.body?.trim() || "";
     const from = msg.from;
-    console.log("De:", from, "->", texto);
-    console.log("GARY_NUMBERS:", GARY_NUMBERS);
-    console.log("RODRIGO_NUMBER:", RODRIGO_NUMBER);
-    console.log("isAuthorized:", isAuthorized(from));
-    if (!isAuthorized(from)) return;
+    console.log("Mensaje de:", from, "->", texto);
+    if (!isAuthorized(from)) { console.log("No autorizado:", from); return; }
     const lower = texto.toLowerCase();
     const gary = isGary(from);
 
