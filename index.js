@@ -3,13 +3,11 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-const API_KEY = process.env.WHATSAPP_API_KEY;
-const API_URL = "https://waba-v2.360dialog.io/v1/messages";
+const META_TOKEN = process.env.META_TOKEN;
+const PHONE_NUMBER_ID = "1180488755143657";
+const API_URL = `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`;
 const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean);
 const RODRIGO_NUMBER = process.env.RODRIGO_NUMBER;
-const NAMESPACE = "48797d40_3193_4dae_a78c_700d8fa75a35";
-const TEMPLATE_NAME = "sinan_bot_respuesta";
-const TEMPLATE_LANG = "es_CL";
 
 const gastos = [];
 let gastoIdCounter = 1;
@@ -18,36 +16,15 @@ const fmtMonto = (n) => "$" + Math.round(n).toLocaleString("es-CL");
 
 async function sendMsg(to, body) {
   try {
-    await axios.post(API_URL,
-      { to, type: "text", text: { body, preview_url: false } },
-      { headers: { "D360-API-KEY": API_KEY, "Content-Type": "application/json" } }
-    );
-    console.log("Texto enviado a", to);
-    return true;
-  } catch(err) {
-    console.error("Error texto:", err.response?.status, JSON.stringify(err.response?.data));
-    console.log("Intentando plantilla para", to);
-    return sendTemplate(to);
-  }
-}
-
-async function sendTemplate(to) {
-  try {
     await axios.post(API_URL, {
+      messaging_product: "whatsapp",
       to,
-      type: "template",
-      template: {
-        namespace: NAMESPACE,
-        name: TEMPLATE_NAME,
-        language: { policy: "deterministic", code: TEMPLATE_LANG },
-        components: []
-      }
-    }, { headers: { "D360-API-KEY": API_KEY, "Content-Type": "application/json" } });
-    console.log("Plantilla enviada a", to);
-    return true;
+      type: "text",
+      text: { body, preview_url: false }
+    }, { headers: { Authorization: `Bearer ${META_TOKEN}`, "Content-Type": "application/json" } });
+    console.log("Enviado OK a", to);
   } catch(err) {
-    console.error("Error plantilla:", err.response?.status, JSON.stringify(err.response?.data));
-    return false;
+    console.error("Error:", err.response?.status, JSON.stringify(err.response?.data));
   }
 }
 
@@ -69,7 +46,7 @@ function parsearGasto(texto) {
   if (isNaN(monto) || monto <= 0) return { ok: false, errores: ["Monto inválido (ej: 1166311)"], partes };
   const obrasValidas = ["codegua","rancagua","peñaflor"];
   if (!obrasValidas.some(o => obra.toLowerCase().includes(o)))
-    return { ok: false, errores: [`Obra no reconocida: "${obra}" — usa Codegua, Rancagua o Peñaflor`], partes };
+    return { ok: false, errores: [`Obra no reconocida: "${obra}"`], partes };
   return { ok: true, obra, etapa: etapa.toUpperCase(), proveedor, monto, descripcion };
 }
 
@@ -121,7 +98,7 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
-    const messages = body?.messages || body?.entry?.[0]?.changes?.[0]?.value?.messages;
+    const messages = body?.entry?.[0]?.changes?.[0]?.value?.messages || body?.messages;
     if (!messages?.length) return;
     const msg = messages[0];
     if (msg.type !== "text") return;
