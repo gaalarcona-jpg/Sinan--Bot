@@ -3,12 +3,9 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-const META_TOKEN = process.env.META_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID || "1180488755143657";
-const API_URL = `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`;
+const WHATSAPP_API_KEY = process.env.WHATSAPP_API_KEY;
 const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean);
 const RODRIGO_NUMBER = process.env.RODRIGO_NUMBER;
-const VERIFY_TOKEN = "sinan2024";
 
 const gastos = [];
 let gastoIdCounter = 1;
@@ -17,12 +14,12 @@ const fmtMonto = (n) => "$" + Math.round(n).toLocaleString("es-CL");
 
 async function sendMsg(to, body) {
   try {
-    await axios.post(API_URL, {
+    await axios.post("https://waba-v2.360dialog.io/messages", {
       messaging_product: "whatsapp",
       to,
       type: "text",
       text: { body, preview_url: false }
-    }, { headers: { Authorization: `Bearer ${META_TOKEN}`, "Content-Type": "application/json" } });
+    }, { headers: { "D360-API-KEY": WHATSAPP_API_KEY, "Content-Type": "application/json" } });
     console.log("Enviado OK a", to);
   } catch(err) {
     console.error("Error:", err.response?.status, JSON.stringify(err.response?.data));
@@ -99,7 +96,7 @@ app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+  if (mode === "subscribe" && token === "sinan2024") {
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
@@ -110,8 +107,7 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
-    const value = body?.entry?.[0]?.changes?.[0]?.value;
-    const messages = value?.messages;
+    const messages = body?.messages;
     if (!messages?.length) return;
     const msg = messages[0];
     if (msg.type !== "text") return;
