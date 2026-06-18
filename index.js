@@ -3,9 +3,9 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-const META_TOKEN = process.env.META_TOKEN;
-const PHONE_NUMBER_ID = "1180488755143657";
-const API_URL = `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`;
+const WHATSAPP_API_KEY = process.env.WHATSAPP_API_KEY;
+const PHONE_NUMBER = process.env.WHATSAPP_NUMBER;
+const API_URL = `https://waba.360dialog.io/v1/messages`;
 const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean);
 const RODRIGO_NUMBER = process.env.RODRIGO_NUMBER;
 const VERIFY_TOKEN = "sinan2024";
@@ -22,7 +22,7 @@ async function sendMsg(to, body) {
       to,
       type: "text",
       text: { body, preview_url: false }
-    }, { headers: { Authorization: `Bearer ${META_TOKEN}`, "Content-Type": "application/json" } });
+    }, { headers: { "D360-API-KEY": WHATSAPP_API_KEY, "Content-Type": "application/json" } });
     console.log("Enviado OK a", to);
   } catch(err) {
     console.error("Error:", err.response?.status, JSON.stringify(err.response?.data));
@@ -45,7 +45,7 @@ function parsearGasto(texto) {
   const descripcion = descParts.join(" / ");
   const monto = parseInt(montoRaw.replace(/[$.]/g, ""));
   if (isNaN(monto) || monto <= 0) return { ok: false, errores: ["Monto inválido (ej: 1166311)"], partes };
-  const obrasValidas = ["codegua","rancagua","peñaflor"];
+  const obrasValidas = ["codegua","rancagua","peñaflor","maribel","islevy","adela","mardones"];
   if (!obrasValidas.some(o => obra.toLowerCase().includes(o)))
     return { ok: false, errores: [`Obra no reconocida: "${obra}"`], partes };
   return { ok: true, obra, etapa: etapa.toUpperCase(), proveedor, monto, descripcion };
@@ -95,14 +95,11 @@ function msgAyuda(esGary) {
   return t;
 }
 
-// Verificación webhook Meta
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-  console.log("Verificación webhook:", mode, token);
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("Webhook verificado OK");
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
@@ -113,7 +110,7 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
-    const messages = body?.entry?.[0]?.changes?.[0]?.value?.messages;
+    const messages = body?.messages;
     if (!messages?.length) return;
     const msg = messages[0];
     if (msg.type !== "text") return;
@@ -170,11 +167,6 @@ app.post("/webhook", async (req, res) => {
 });
 
 app.get("/gastos", (req, res) => res.json(gastos));
-app.get("/gastos/:obra/:etapa", (req, res) => {
-  const { obra, etapa } = req.params;
-  const filtrados = gastos.filter(g => g.obra.toLowerCase().includes(obra.toLowerCase()) && g.etapa.toLowerCase() === etapa.toLowerCase());
-  res.json({ gastos: filtrados, total: filtrados.reduce((s,g)=>s+g.monto,0), count: filtrados.length });
-});
 app.get("/", (req, res) => res.json({ status: "SINAN Bot activo", timestamp: new Date().toISOString(), gastos_registrados: gastos.length }));
 
 const PORT = process.env.PORT || 3000;
