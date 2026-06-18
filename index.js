@@ -8,6 +8,7 @@ const PHONE_NUMBER_ID = "1180488755143657";
 const API_URL = `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`;
 const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean);
 const RODRIGO_NUMBER = process.env.RODRIGO_NUMBER;
+const VERIFY_TOKEN = "sinan2024";
 
 const gastos = [];
 let gastoIdCounter = 1;
@@ -94,11 +95,25 @@ function msgAyuda(esGary) {
   return t;
 }
 
+// Verificación webhook Meta
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  console.log("Verificación webhook:", mode, token);
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("Webhook verificado OK");
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
-    const messages = body?.entry?.[0]?.changes?.[0]?.value?.messages || body?.messages;
+    const messages = body?.entry?.[0]?.changes?.[0]?.value?.messages;
     if (!messages?.length) return;
     const msg = messages[0];
     if (msg.type !== "text") return;
