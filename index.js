@@ -1,11 +1,42 @@
 const express = require("express");
 const axios = require("axios");
 const app = express();
-app.use(express.json());
+
+// Captura el RAW body de TODA request, sin importar Content-Type ni si el JSON
+// es parseable. Reemplaza a express.json() para que ningún payload con
+// estructura inesperada se pierda silenciosamente antes de loguearlo.
+app.use((req, res, next) => {
+  let data = "";
+  req.setEncoding("utf8");
+  req.on("data", (chunk) => { data += chunk; });
+  req.on("end", () => {
+    req.rawBody = data;
+    if (req.path === "/webhook") {
+      console.log("==== RAW WEBHOOK ====");
+      console.log("Method:", req.method, "Content-Type:", req.headers["content-type"]);
+      console.log("Headers:", JSON.stringify(req.headers));
+      console.log("Body crudo:", data || "(vacío)");
+      console.log("=====================");
+    }
+    try {
+      req.body = data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.error("No se pudo parsear JSON del webhook:", e.message);
+      req.body = {};
+    }
+    next();
+  });
+  req.on("error", (e) => {
+    console.error("Error leyendo request body:", e.message);
+    req.body = {};
+    next();
+  });
+});
 
 const WHATSAPP_API_KEY = process.env.WHATSAPP_API_KEY;
-const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean);
-const RODRIGO_NUMBER = process.env.RODRIGO_NUMBER;
+const normalizarTel = (n) => (n || "").replace(/[^\d]/g, "");
+const GARY_NUMBERS = [process.env.GARY_NUMBER_1, process.env.GARY_NUMBER_2].filter(Boolean).map(normalizarTel);
+const RODRIGO_NUMBER = normalizarTel(process.env.RODRIGO_NUMBER);
 
 const gastos = [];
 let gastoIdCounter = 1;
@@ -26,9 +57,21 @@ async function sendMsg(to, body) {
   }
 }
 
-function isGary(n) { return GARY_NUMBERS.includes(n); }
-function isRodrigo(n) { return n === RODRIGO_NUMBER; }
+function isGary(n) { return GARY_NUMBERS.includes(normalizarTel(n)); }
+function isRodrigo(n) { return normalizarTel(n) === RODRIGO_NUMBER; }
 function isAuthorized(n) { return isGary(n) || isRodrigo(n); }
+
+// Extrae el primer mensaje de texto soportando dos formatos de webhook:
+// 1) Meta Cloud API / 360dialog "Cloud API hosted by Meta": anidado en
+//    entry[0].changes[0].value.messages
+// 2) Formato plano legacy (usado por el test-ping del panel de 360dialog):
+//    body.messages directamente
+function extraerMensaje(body) {
+  const value = body?.entry?.[0]?.changes?.[0]?.value;
+  if (value?.messages?.length) return value.messages[0];
+  if (body?.messages?.length) return body.messages[0];
+  return null;
+}
 
 function parsearGasto(texto) {
   const partes = texto.split("/").map(p => p.trim());
@@ -107,10 +150,15 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
-    const messages = body?.messages;
-    if (!messages?.length) return;
-    const msg = messages[0];
-    if (msg.type !== "text") return;
+    const msg = extraerMensaje(body);
+    if (!msg) {
+      console.log("Webhook sin mensajes procesables (status update, test-ping u otro evento). object:", body?.object);
+      return;
+    }
+    if (msg.type !== "text") {
+      console.log("Mensaje ignorado por tipo no-texto:", msg.type);
+      return;
+    }
     const texto = msg.text?.body?.trim() || "";
     const from = msg.from;
     console.log("Mensaje de:", from, "->", texto);
