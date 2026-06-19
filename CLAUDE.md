@@ -1,83 +1,60 @@
-# SINAN Bot
+# SINAN Bot v2
 
-Bot de WhatsApp para registrar y controlar gastos de obras de construcción, vía la API de 360dialog (WhatsApp Business API). Aplicación Node.js de un solo archivo (`index.js`), sin base de datos: todo el estado vive en memoria y se pierde al reiniciar el proceso.
+Bot de WhatsApp para rendiciones y control financiero de obras de construcción, vía 360dialog (WhatsApp Business / Meta Cloud API). v2 reemplaza el sistema v1 en memoria (ver `v1-final` tag) por persistencia real en Postgres, extracción de boletas con IA, conversación en lenguaje natural con estado persistente, y separación estructural de roles para proteger margen/utilidad de la empresa.
 
 ## Stack
 
 - Node.js + Express (servidor HTTP / webhook receiver)
-- axios (cliente HTTP para enviar mensajes vía 360dialog)
-- Sin base de datos, sin framework de testing, sin build step
+- Postgres (Railway addon) vía `pg`
+- Claude API (`@anthropic-ai/sdk`) con visión, para clasificar intención y extraer datos de boletas/comprobantes
+- Google Drive API (`googleapis`, cuenta de servicio) para almacenar imágenes y backups — Railway tiene disco efímero
+- `exceljs` para reportes, `node-cron` para backup diario y resumen diario
+- axios (llamadas REST a 360dialog)
+
+## Estructura de archivos
+
+- `index.js` — servidor Express, webhook GET/POST, healthcheck, arranque de crons
+- `config.js` — valida env vars al boot, expone objeto congelado
+- `db.js` — pool pg + queries de dominio (usuarios, obras, etapas, items, gastos, proveedores, acuerdos, estado conversacional)
+- `db_comercial.js` — **aislado**: única fuente de queries sobre precio de venta/margen. Solo lo importan `reports.js` (sección `gary`) y `flows.js` dentro de bloques `rol === 'gary'/'admin'`
+- `claude.js` — extracción de boleta (visión) + clasificación de intención en una sola llamada (tool-use forzado)
+- `drive.js` — cliente Drive autenticado al boot: `subirImagen`, `subirBackup`, `subirReporte`
+- `excel.js` — construye workbooks a partir de filas ya armadas; no conoce roles ni hace queries
+- `reports.js` — namespaces `reports.rodrigo.*` / `reports.gary.*` disjuntos
+- `flows.js` — router de intención + máquina de estados conversacional + handlers de los 6 flujos + comandos admin
+- `whatsapp.js` — `sendText`, `downloadMedia` sobre la API de 360dialog
+- `backup.js` — export JSON de todas las tablas a Drive, invocado por cron
+- `format.js` — helpers puros (`fmtMonto`, `normalizarTel`, `fmtFecha`, `contieneRazonSocialValida`)
+- `migrate.js` + `migrations/*.sql` — runner de migraciones propio (sin Knex/Prisma)
 
 ## Cómo correrlo
 
 ```
 npm install
-node index.js
+npm run migrate   # o: node migrate.js
+node index.js     # "npm start" ya encadena migrate.js && index.js
 ```
 
-Escucha en `process.env.PORT` (default 3000). Requiere las variables de entorno:
+Variables de entorno — ver `.env.example`. Obligatorias: `DATABASE_URL`, `WHATSAPP_API_KEY`, `WEBHOOK_VERIFY_TOKEN`, `ANTHROPIC_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`, `GOOGLE_DRIVE_FOLDER_ID_BOLETAS/BACKUPS/REPORTES`. `config.js` falla rápido (`process.exit(1)`) si falta alguna.
 
-- `WHATSAPP_API_KEY` — API key de 360dialog (header `D360-API-KEY`)
-- `GARY_NUMBER_1`, `GARY_NUMBER_2` — números de WhatsApp autorizados como "Gary" (admin)
-- `RODRIGO_NUMBER` — número de WhatsApp autorizado como "Rodrigo" (operador)
+`GARY_NUMBER_1/2` y `RODRIGO_NUMBER` de v1 ya no existen — los usuarios autorizados viven en la tabla `usuarios` (columna `rol`: `gary`/`rodrigo`/`finanzas`/`admin`). Se agregan con el comando admin `agregar usuario / Nombre / Teléfono / rol` (solo Gary/admin) o insertando directo en Postgres.
 
-No existe `.env.example` en el repo; estas variables deben configurarse manualmente donde se despliegue.
+## La regla crítica: margen/utilidad nunca visible para Rodrigo
 
-## Arquitectura (todo en `index.js`)
+`gastos` no tiene ninguna columna de margen — se calcula agregado en `reports.gary.*` contra `obras_comercial`/`etapas_comercial` (tablas separadas con el precio de venta, que Rodrigo nunca toca). La separación es por **ausencia de código**, no un filtro en runtime: `reports.rodrigo` nunca llama a `db_comercial.js`. `excel.js` solo genera la hoja de margen si alguien le pasa explícitamente el parámetro `filasMargen` (solo lo construye `reports.gary.exportarObraConMargen`).
 
-- **Webhook GET `/webhook`** — verificación de 360dialog. El verify token está hardcodeado como `"sinan2024"` (línea ~99).
-- **Webhook POST `/webhook`** — recibe mensajes entrantes de WhatsApp, responde `200` inmediatamente y procesa de forma asíncrona.
-- **`GET /gastos`** — devuelve el array `gastos` completo en JSON (sin auth).
-- **`GET /`** — healthcheck simple.
+Antes de tocar cualquier flujo de Rodrigo: grep de `obras_comercial`/`etapas_comercial`/`db_comercial` en el repo — las únicas apariciones válidas son `db_comercial.js`, `reports.js` (dentro del objeto `gary`), `flows.js` (dentro de `intentarComandoAdmin`, gateado por rol), y `backup.js` (lista de tablas a respaldar, no expone nada por WhatsApp).
 
-### Modelo de datos
+## Flujos (en `flows.js`)
 
-`gastos` es un array en memoria de objetos:
+Router de intención: una llamada a Claude (`claude.extraerYClasificar`) clasifica el mensaje en un intent (`REGISTRAR_RENDICION`, `REGISTRAR_ACUERDO`, `CONSULTAR_SALDO_PROVEEDOR`, `REGISTRAR_PAGO`, `COMPLETAR_ETAPA`, `EXPORTAR_REPORTE`, `CONSULTAR_RESUMEN`, `PEDIR_AYUDA`, `RESPONDER_PREGUNTA_PENDIENTE`, `DESCONOCIDO`) y extrae entidades libres (obra/etapa/item/proveedor/monto/iva/razón social), en la misma llamada que lee la imagen si hay una adjunta. El estado conversacional pendiente (`estado_conversacional`, TTL 30 min, un solo estado activo por usuario) persiste en Postgres — sobrevive a un redeploy de Railway, a diferencia de v1.
 
-```js
-{ id, obra, etapa, proveedor, monto, descripcion, fecha, registradoPor, estado, montoPagado?, fechaPago? }
-```
-
-`estado` es `"pendiente"` o `"pagado"`. `gastoIdCounter` autoincrementa el `id`.
-
-### Autorización
-
-Solo dos roles, identificados por número de teléfono de origen (`from`):
-
-- **Gary** (`isGary`) — uno de `GARY_NUMBERS`. Es el admin: puede marcar pagos y recibe notificación automática de cada gasto que registra Rodrigo.
-- **Rodrigo** (`isRodrigo`) — operador. Puede registrar gastos pero no marcarlos como pagados.
-
-Cualquier número fuera de esa lista es ignorado silenciosamente (`isAuthorized`).
-
-### Comandos de WhatsApp (texto plano, case-insensitive)
-
-| Comando | Quién | Acción |
-|---|---|---|
-| `ayuda` / `help` | todos | Muestra menú de ayuda (`msgAyuda`) |
-| `resumen` | todos | Resumen de gastos por obra/etapa (`generarResumen`) |
-| `pendientes` | todos | Lista gastos sin pagar (`listarPendientes`) |
-| `pago / ID / monto` | solo Gary | Marca un gasto como pagado (`parsearPago`) |
-| `Obra / Etapa / Proveedor / Monto / Descripción` | todos | Registra un gasto nuevo (`parsearGasto`) |
-
-El registro de gasto y el pago se parsean dividiendo el texto por `/`. El formato es estricto y posicional — no hay parser tolerante a orden distinto de campos.
-
-### Reglas de negocio específicas
-
-- **Obras válidas** (hardcodeadas en `parsearGasto`): `codegua`, `rancagua`, `peñaflor`, `maribel`, `islevy`, `adela`, `mardones`. Cualquier otra obra es rechazada.
-- **Presupuesto de Codegua Etapa 1**: hardcodeado en `$31.000.000` (línea ~149). Al registrar un gasto en `codegua` + etapa `E1`, el bot calcula automáticamente gastado/saldo/% y alerta visualmente (🟢 <70%, 🟡 70-89%, 🔴 ≥90%, ⚠️ si se excede). No hay presupuestos configurados para otras obras/etapas.
-- Cuando Rodrigo registra un gasto, el bot notifica automáticamente a ambos `GARY_NUMBERS` con los datos y el comando de pago listo para copiar.
-- Los montos se formatean en formato moneda chilena (`$1.166.311`, vía `toLocaleString("es-CL")`); al parsear se limpian `$` y `.`.
-
-## Limitaciones conocidas / deuda técnica
-
-- **Sin persistencia**: `gastos` vive solo en memoria del proceso Node. Un reinicio (deploy, crash, restart de Render/Railway/etc.) borra todo el historial.
-- **Verify token hardcodeado** (`"sinan2024"`) en el código fuente, no en variable de entorno.
-- **`GET /gastos` sin autenticación** — cualquiera con la URL puede leer todos los gastos registrados.
-- **Sin tests** y sin linter configurado.
-- El historial de git muestra commits sucesivos de tipo "Update index.js" sin mensajes descriptivos — para entender la evolución real de una regla de negocio, es mejor leer el código actual que el log.
+Comandos administrativos (`intentarComandoAdmin`, solo `gary`/`admin`, formato rígido con `/` intencional porque son operaciones de setup, no conversación con Rodrigo): `agregar usuario`, `agregar proveedor`, `obra nueva`, `etapa nueva`, `presupuesto` (carga manual de presupuesto por ítem — nunca se infiere), `precio venta` (alimenta `obras_comercial`/`etapas_comercial`, gary-only).
 
 ## Convenciones al modificar este código
 
-- Mantener el estilo: un solo archivo, funciones puras pequeñas (`parsearX`, `generarX`, `listarX`) que el handler del webhook orquesta.
-- Los mensajes de respuesta a WhatsApp usan formato Markdown de WhatsApp (`*negrita*`, `_cursiva_`) y emojis — seguir ese tono si se agregan mensajes nuevos.
-- Si se agrega una obra o presupuesto nuevo, hoy implica editar arrays/constantes hardcodeadas (`obrasValidas`, `PPTO`) directamente en `index.js`; no hay capa de configuración separada.
+- Mantener el patrón de namespaces disjuntos `reports.rodrigo`/`reports.gary` — no fusionar en un objeto único filtrado en runtime.
+- Cualquier columna o tabla nueva relacionada a precio de venta, margen o utilidad va en `db_comercial.js`, nunca en `db.js`.
+- El tono de los mensajes a WhatsApp usa Markdown de WhatsApp (`*negrita*`) y emojis, igual que v1.
+- `excel.js` no debe empezar a hacer queries — recibe filas ya armadas por `reports.js`.
+- v1 queda taggeado como `v1-final` en git como ancla de rollback; no borrar ese tag.
