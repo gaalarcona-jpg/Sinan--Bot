@@ -1,0 +1,40 @@
+const { google } = require("googleapis");
+const { Readable } = require("stream");
+const config = require("./config");
+
+const auth = new google.auth.GoogleAuth({
+  credentials: config.GOOGLE_CREDENTIALS,
+  scopes: ["https://www.googleapis.com/auth/drive"],
+});
+
+const drive = google.drive({ version: "v3", auth });
+
+async function subirArchivo(buffer, nombreArchivo, mimeType, folderId) {
+  const { data } = await drive.files.create({
+    requestBody: { name: nombreArchivo, parents: [folderId] },
+    media: { mimeType, body: Readable.from(buffer) },
+    fields: "id, webViewLink",
+  });
+  await drive.permissions.create({
+    fileId: data.id,
+    requestBody: { role: "reader", type: "anyone" },
+  });
+  const { data: meta } = await drive.files.get({ fileId: data.id, fields: "id, webViewLink" });
+  return { fileId: meta.id, webViewLink: meta.webViewLink };
+}
+
+const subirImagen = (buffer, nombreArchivo, mimeType) =>
+  subirArchivo(buffer, nombreArchivo, mimeType, config.GOOGLE_DRIVE_FOLDER_ID_BOLETAS);
+
+const subirBackup = (buffer, nombreArchivo) =>
+  subirArchivo(buffer, nombreArchivo, "application/json", config.GOOGLE_DRIVE_FOLDER_ID_BACKUPS);
+
+const subirReporte = (buffer, nombreArchivo) =>
+  subirArchivo(
+    buffer,
+    nombreArchivo,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    config.GOOGLE_DRIVE_FOLDER_ID_REPORTES
+  );
+
+module.exports = { subirImagen, subirBackup, subirReporte };
