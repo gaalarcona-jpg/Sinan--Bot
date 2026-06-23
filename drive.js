@@ -37,4 +37,11 @@ const subirReporte = (buffer, nombreArchivo) =>
     config.GOOGLE_DRIVE_FOLDER_ID_REPORTES
   );
 
-module.exports = { subirImagen, subirBackup, subirReporte };
+// La imagen se sube al tiro cuando llega (con nombre provisorio, porque obra/
+// proveedor/monto recién se terminan de confirmar en turnos posteriores) y se
+// renombra una vez creado el gasto, ya con todos los datos finales.
+async function renombrar(fileId, nuevoNombre) {
+  await drive.files.update({ fileId, requestBody: { name: nuevoNombre } });
+}
+
+module.exports = { subirImagen, subirBackup, subirReporte, renombrar };

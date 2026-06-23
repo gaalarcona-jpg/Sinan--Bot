@@ -11,14 +11,17 @@ async function construirReporteObra({ nombreObra, filasGastos, filasEficiencia, 
   const hojaGastos = wb.addWorksheet("Rendiciones");
   hojaGastos.columns = [
     { header: "ID", key: "id", width: 8 },
-    { header: "Tipo", key: "tipo", width: 12 },
+    { header: "Fecha documento", key: "fecha", width: 16 },
+    { header: "Obra", key: "obra", width: 22 },
     { header: "Etapa", key: "etapa", width: 14 },
     { header: "Ítem", key: "item", width: 18 },
     { header: "Proveedor", key: "proveedor", width: 20 },
+    { header: "Descripción", key: "descripcion", width: 30 },
     { header: "Monto", key: "monto", width: 14 },
     { header: "Estado", key: "estado", width: 12 },
-    { header: "Fecha", key: "fecha", width: 14 },
-    { header: "Descripción", key: "descripcion", width: 30 },
+    { header: "Usuario", key: "usuario", width: 18 },
+    { header: "Link imagen", key: "linkImagen", width: 40 },
+    { header: "Fecha registro", key: "fechaRegistro", width: 16 },
   ];
   hojaGastos.addRows(filasGastos || []);
 

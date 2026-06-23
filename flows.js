@@ -3,9 +3,25 @@ const whatsapp = require("./whatsapp");
 const drive = require("./drive");
 const claude = require("./claude");
 const reports = require("./reports");
-const { fmtMonto, fmtFecha, contieneRazonSocialValida, normalizarTel } = require("./format");
+const { fmtMonto, fmtFecha, contieneRazonSocialValida, telefonoCompleto } = require("./format");
 
 const TOLERANCIA_DISCREPANCIA = 1; // pesos — diferencias menores se consideran "el mismo monto"
+
+// "admin" tiene los mismos privilegios que "gary" (acceso total) — todo gate de
+// permisos debe usar esto, nunca comparar contra "gary" en solitario.
+const esAdmin = (usuario) => usuario.rol === "gary" || usuario.rol === "admin";
+
+// Información financiera interna que Rodrigo nunca debe ver — se intercepta por
+// palabra clave ANTES de clasificar con Claude, no depende de que el modelo
+// "decida" bloquearlo.
+const PATRON_INFO_RESTRINGIDA = /\b(margen(es)?|utilidad(es)?|rentabilidad|bono(s)?|ganancia(s)?)\b/i;
+
+const TIPOS_DOCUMENTO = {
+  boleta: "Boleta",
+  factura: "Factura",
+  comprobante_transferencia: "Comprobante de transferencia",
+  otro: "Otro",
+};
 
 function limpiarNoNulos(obj) {
   const out = {};
@@ -62,10 +78,32 @@ function construirResumenConfirmacion(datos, monto) {
     `- Obra: ${datos.obraNombre}`,
     `- Etapa: ${datos.etapaNombre}`,
     `- Ítem: ${datos.itemNombre}`,
+    `- Proveedor: ${datos.proveedorNombre || "—"}`,
     `- Monto: ${fmtMonto(monto)}`,
+    `- Fecha: ${datos.fecha_documento || "no detectada"}`,
+    `- Tipo: ${TIPOS_DOCUMENTO[datos.tipo_documento] || "no detectado"}`,
+    `- Estado: Pendiente`,
   ];
-  if (datos.proveedorNombre) lineas.push(`- Proveedor: ${datos.proveedorNombre}`);
   return `📋 Voy a registrar:\n${lineas.join("\n")}\n¿Confirmas? (sí/no)`;
+}
+
+function slug(s) {
+  return (
+    String(s || "")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "sin-dato"
+  );
+}
+
+// YYYY-MM-DD_obra_proveedor_monto_telefono.jpg — se aplica recién al confirmar
+// el gasto, porque al momento de subir la imagen todavía no se conocen todos
+// estos datos (se van completando turno a turno).
+function nombreArchivoFinal(datos, monto, usuario) {
+  const fecha = datos.fecha_documento || new Date().toISOString().slice(0, 10);
+  return `${fecha}_${slug(datos.obraNombre)}_${slug(datos.proveedorNombre)}_${Math.round(monto)}_${usuario.telefono}.jpg`;
 }
 
 async function resolverEntidades(datos) {
@@ -79,8 +117,9 @@ async function resolverEntidades(datos) {
       out.obraCandidatos = candidatos.map((c) => ({ id: c.id, nombre: c.nombre }));
     }
   }
-  if (datos.etapa && out.obraId && !out.etapaId) {
-    const etapa = await db.etapas.porObraYNombreAprox(out.obraId, datos.etapa);
+  const nombreEtapa = datos.etapa || datos.numero_etapa;
+  if (nombreEtapa && out.obraId && !out.etapaId) {
+    const etapa = await db.etapas.porObraYNombreAprox(out.obraId, nombreEtapa);
     if (etapa) { out.etapaId = etapa.id; out.etapaNombre = etapa.nombre; }
   }
   if (datos.item && out.etapaId && !out.itemId) {
@@ -183,7 +222,14 @@ async function handleRegistrarRendicion(usuario, datos) {
     alertaRazonSocial,
     razonSocialDetectada: datos.razon_social_detectada || null,
     rawExtraccionIa: datos.rawExtraccionIa || null,
+    fechaDocumento: datos.fecha_documento || null,
+    tipoDocumento: datos.tipo_documento || null,
   });
+
+  if (datos.imagenDriveId) {
+    drive.renombrar(datos.imagenDriveId, nombreArchivoFinal(datos, monto, usuario))
+      .catch((e) => console.error("No se pudo renombrar imagen en Drive:", e.message));
+  }
 
   let mensaje = `✅ Rendición #${gasto.id} registrada. Las rendiciones se revisan semanalmente para pago — se incluirá en el reporte a Finanzas.`;
   if (alertaRazonSocial) {
@@ -221,7 +267,7 @@ async function handleConsultarSaldoProveedor(usuario, datos) {
 }
 
 async function handleRegistrarPago(usuario, datos) {
-  if (usuario.rol !== "gary") return { completo: true, mensaje: "Solo Gary puede marcar pagos." };
+  if (!esAdmin(usuario)) return { completo: true, mensaje: "Solo Gary puede marcar pagos." };
 
   let gasto = null;
   if (datos.id_rendicion_mencionado) {
@@ -257,6 +303,9 @@ async function handleRegistrarPago(usuario, datos) {
 }
 
 async function handleCompletarEtapa(usuario, datos) {
+  if (!esAdmin(usuario)) {
+    return { completo: true, mensaje: "Solo Gary puede marcar una etapa como completada." };
+  }
   if (!datos.obraId) {
     const r = await preguntaObra(datos);
     return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
@@ -282,12 +331,35 @@ async function handleCompletarEtapa(usuario, datos) {
   return { completo: true, mensaje };
 }
 
+// Avance de gasto real vs presupuesto — disponible para ambos roles (mismo
+// dato que ya se ve en "resumen"), nunca toca margen/utilidad/bono.
+async function handleEstadoEtapa(usuario, datos) {
+  if (!datos.obraId) {
+    const r = await preguntaObra(datos);
+    return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
+  }
+  if (!datos.etapaId) {
+    return { completo: false, pregunta: `¿Qué etapa de ${datos.obraNombre}? Ej: Etapa 1, Etapa 2...` };
+  }
+  const etapa = await db.etapas.porId(datos.etapaId);
+  const { presupuestoTotal, gastadoTotal } = await db.etapas.avance(datos.etapaId);
+  const pct = presupuestoTotal > 0 ? Math.round((gastadoTotal / presupuestoTotal) * 100) : 0;
+  const estadoTexto = etapa.estado === "completada" ? "✅ Completada" : "🔧 En curso";
+  return {
+    completo: true,
+    mensaje:
+      `📍 *${datos.obraNombre} — ${etapa.nombre}*\n` +
+      `Estado: ${estadoTexto}\n` +
+      `Gasto real: ${fmtMonto(gastadoTotal)} / Presupuesto: ${fmtMonto(presupuestoTotal)} (${pct}%)`,
+  };
+}
+
 async function handleExportarReporte(usuario, datos) {
   if (!datos.obraId) {
     const r = await preguntaObra(datos);
     return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
   }
-  const link = usuario.rol === "gary"
+  const link = esAdmin(usuario)
     ? await reports.gary.exportarObraConMargen(datos.obraId)
     : await reports.rodrigo.exportarObra(datos.obraId);
   return { completo: true, mensaje: `📊 Reporte de *${datos.obraNombre}* generado.\n🔗 ${link.webViewLink}` };
@@ -295,7 +367,7 @@ async function handleExportarReporte(usuario, datos) {
 
 async function handleConsultarResumen(usuario, datos) {
   if (datos.obraId) {
-    const filas = usuario.rol === "gary"
+    const filas = esAdmin(usuario)
       ? await reports.gary.eficienciaPorItem(datos.obraId)
       : await reports.rodrigo.eficienciaPorItem(datos.obraId);
     if (!filas.length) return { completo: true, mensaje: `Sin ítems de presupuesto cargados para ${datos.obraNombre} todavía.` };
@@ -307,7 +379,7 @@ async function handleConsultarResumen(usuario, datos) {
     });
     return { completo: true, mensaje: t };
   }
-  if (usuario.rol === "gary") {
+  if (esAdmin(usuario)) {
     const t = await reports.gary.resumenDiarioPendientesTexto();
     return { completo: true, mensaje: t };
   }
@@ -316,7 +388,7 @@ async function handleConsultarResumen(usuario, datos) {
 }
 
 function handleAyuda(usuario) {
-  if (usuario.rol === "gary") {
+  if (esAdmin(usuario)) {
     return {
       completo: true,
       mensaje:
@@ -350,6 +422,7 @@ const HANDLERS = {
   CONSULTAR_SALDO_PROVEEDOR: handleConsultarSaldoProveedor,
   REGISTRAR_PAGO: handleRegistrarPago,
   COMPLETAR_ETAPA: handleCompletarEtapa,
+  ESTADO_ETAPA: handleEstadoEtapa,
   EXPORTAR_REPORTE: handleExportarReporte,
   CONSULTAR_RESUMEN: handleConsultarResumen,
   PEDIR_AYUDA: (usuario) => handleAyuda(usuario),
@@ -360,13 +433,13 @@ const HANDLERS = {
 // COMANDOS ADMINISTRATIVOS (deterministas, solo gary/admin)
 // ============================================================
 async function intentarComandoAdmin(usuario, texto) {
-  if (usuario.rol !== "gary" && usuario.rol !== "admin") return null;
+  if (!esAdmin(usuario)) return null;
   const partes = texto.split("/").map((p) => p.trim());
   const cmd = partes[0].toLowerCase();
 
   if (cmd === "agregar usuario" && partes.length >= 4) {
     const [, nombre, telefono, rol] = partes;
-    const creado = await db.usuarios.crear({ nombre, telefono: normalizarTel(telefono), rol: rol.toLowerCase() });
+    const creado = await db.usuarios.crear({ nombre, telefono: telefonoCompleto(telefono), rol: rol.toLowerCase() });
     return `✅ Usuario ${creado.nombre} (${creado.rol}) agregado.`;
   }
   if (cmd === "agregar proveedor" && partes.length >= 2) {
@@ -416,6 +489,18 @@ async function intentarComandoAdmin(usuario, texto) {
 // ============================================================
 async function procesarMensaje(usuario, mensajes) {
   const { texto, media } = extraerTextoYMedia(mensajes);
+
+  if (/^\s*cancelar\s*$/i.test(texto || "")) {
+    await db.estadoConversacional.borrar(usuario.id);
+    await whatsapp.sendText(usuario.telefono, "Listo, cancelé lo que estábamos haciendo. ¿En qué más te ayudo?");
+    return;
+  }
+
+  if (!esAdmin(usuario) && PATRON_INFO_RESTRINGIDA.test(texto || "")) {
+    const nombre = (usuario.nombre || "").trim().split(/\s+/)[0] || "";
+    await whatsapp.sendText(usuario.telefono, `${nombre ? nombre + ", " : ""}esa información está restringida para administración.`);
+    return;
+  }
 
   if (media || texto) {
     const respuestaAdmin = texto ? await intentarComandoAdmin(usuario, texto).catch((e) => {
@@ -509,7 +594,7 @@ async function procesarMensaje(usuario, mensajes) {
 
   datos = await resolverEntidades(datos);
 
-  if (intentFinal === "REGISTRAR_PAGO" && usuario.rol !== "gary") {
+  if (intentFinal === "REGISTRAR_PAGO" && !esAdmin(usuario)) {
     await whatsapp.sendText(usuario.telefono, "Solo Gary puede marcar pagos.");
     await db.estadoConversacional.borrar(usuario.id);
     return;
@@ -536,7 +621,7 @@ async function procesarMensaje(usuario, mensajes) {
 }
 
 async function enviarResumenDiarioAGary() {
-  const garys = await db.usuarios.porRol("gary");
+  const garys = await db.usuarios.porRol(["gary", "admin"]);
   if (!garys.length) return;
   const texto = await reports.gary.resumenDiarioPendientesTexto();
   for (const g of garys) await whatsapp.sendText(g.telefono, texto);

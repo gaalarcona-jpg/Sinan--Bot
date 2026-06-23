@@ -14,8 +14,14 @@ const query = (sql, params) => pool.query(sql, params);
 // USUARIOS
 // ============================================================
 const usuarios = {
+  // telefono debe venir ya pasado por normalizarTel() (formato.js) — últimos 9
+  // dígitos. La comparación además normaliza la columna en la misma query, así
+  // que funciona sin importar si "telefono" quedó guardado con o sin "56"/"+".
   async porTelefono(telefono) {
-    const { rows } = await query("SELECT * FROM usuarios WHERE telefono = $1 AND activo = true", [telefono]);
+    const { rows } = await query(
+      "SELECT * FROM usuarios WHERE activo = true AND RIGHT(regexp_replace(telefono, '\\D', '', 'g'), 9) = $1",
+      [telefono]
+    );
     return rows[0] || null;
   },
   async porId(id) {
@@ -23,7 +29,8 @@ const usuarios = {
     return rows[0] || null;
   },
   async porRol(rol) {
-    const { rows } = await query("SELECT * FROM usuarios WHERE rol = $1 AND activo = true", [rol]);
+    const roles = Array.isArray(rol) ? rol : [rol];
+    const { rows } = await query("SELECT * FROM usuarios WHERE rol = ANY($1) AND activo = true", [roles]);
     return rows;
   },
   async crear({ nombre, telefono, rol }) {
@@ -108,6 +115,24 @@ const etapas = {
       [id]
     );
     return rows[0];
+  },
+  // Avance de gasto real vs presupuesto de la etapa — no expone margen/utilidad,
+  // solo presupuesto interno (mismo dato que ya ve cualquier rol en "resumen").
+  async avance(etapaId) {
+    const { rows } = await query(
+      `SELECT COALESCE(SUM(ip.presupuesto), 0) AS presupuesto_total,
+              COALESCE(SUM(g.gastado), 0) AS gastado_total
+       FROM items_presupuesto ip
+       LEFT JOIN (
+         SELECT item_id, SUM(monto) AS gastado FROM gastos WHERE estado != 'rechazado' GROUP BY item_id
+       ) g ON g.item_id = ip.id
+       WHERE ip.etapa_id = $1`,
+      [etapaId]
+    );
+    return {
+      presupuestoTotal: Number(rows[0].presupuesto_total),
+      gastadoTotal: Number(rows[0].gastado_total),
+    };
   },
 };
 
@@ -217,17 +242,20 @@ const gastos = {
       tipo = "rendicion", obraId, etapaId, itemId, proveedorId, acuerdoId, monto,
       ivaIncluido, descripcion, imagenDriveId, imagenDriveLink, registradoPor,
       alertaRazonSocial = false, razonSocialDetectada, rawExtraccionIa,
+      fechaDocumento, tipoDocumento,
     } = datos;
     const { rows } = await query(
       `INSERT INTO gastos (
          tipo, obra_id, etapa_id, item_id, proveedor_id, acuerdo_id, monto, iva_incluido,
          descripcion, imagen_drive_id, imagen_drive_link, registrado_por,
-         alerta_razon_social, razon_social_detectada, raw_extraccion_ia
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         alerta_razon_social, razon_social_detectada, raw_extraccion_ia,
+         fecha_documento, tipo_documento
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        RETURNING *`,
       [tipo, obraId, etapaId, itemId, proveedorId, acuerdoId, monto, ivaIncluido,
        descripcion, imagenDriveId, imagenDriveLink, registradoPor,
-       alertaRazonSocial, razonSocialDetectada, rawExtraccionIa]
+       alertaRazonSocial, razonSocialDetectada, rawExtraccionIa,
+       fechaDocumento || null, tipoDocumento || null]
     );
     return rows[0];
   },
@@ -254,11 +282,13 @@ const gastos = {
   },
   async porObraConDetalle(obraId) {
     const { rows } = await query(
-      `SELECT g.*, e.nombre AS etapa_nombre, ip.nombre AS item_nombre, p.nombre AS proveedor_nombre
+      `SELECT g.*, e.nombre AS etapa_nombre, ip.nombre AS item_nombre, p.nombre AS proveedor_nombre,
+              u.nombre AS usuario_nombre
        FROM gastos g
        LEFT JOIN etapas e ON e.id = g.etapa_id
        LEFT JOIN items_presupuesto ip ON ip.id = g.item_id
        LEFT JOIN proveedores p ON p.id = g.proveedor_id
+       LEFT JOIN usuarios u ON u.id = g.registrado_por
        WHERE g.obra_id = $1
        ORDER BY g.creado_en DESC`,
       [obraId]

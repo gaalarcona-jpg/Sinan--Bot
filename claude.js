@@ -9,6 +9,7 @@ const INTENTS = [
   "CONSULTAR_SALDO_PROVEEDOR",
   "REGISTRAR_PAGO",
   "COMPLETAR_ETAPA",
+  "ESTADO_ETAPA",
   "EXPORTAR_REPORTE",
   "CONSULTAR_RESUMEN",
   "PEDIR_AYUDA",
@@ -33,23 +34,35 @@ const TOOL = {
       monto_imagen: { type: ["number", "null"], description: "Monto total leído directamente de la boleta/imagen adjunta, si hay imagen" },
       iva_incluido: { type: ["boolean", "null"], description: "Si la boleta indica IVA incluido. null si no se puede determinar" },
       razon_social_detectada: { type: ["string", "null"], description: "Razón social del receptor leída en la boleta, si hay imagen" },
+      fecha_documento: { type: ["string", "null"], description: "Fecha del documento leída en la imagen, formato YYYY-MM-DD si se puede inferir, null si no hay imagen o no es legible" },
+      tipo_documento: { type: ["string", "null"], enum: ["boleta", "factura", "comprobante_transferencia", "otro", null], description: "Tipo de documento visible en la imagen, null si no hay imagen" },
+      legible_imagen: { type: ["boolean", "null"], description: "true si la imagen adjunta se pudo leer con confianza, false si está borrosa/cortada/ilegible, null si no hay imagen" },
       descripcion: { type: ["string", "null"], description: "Breve descripción de la compra/gasto en palabras del usuario" },
       id_rendicion_mencionado: { type: ["number", "null"], description: "ID de rendición explícito si el usuario lo menciona (ej. 'pago la 42')" },
       monto_acordado: { type: ["number", "null"], description: "Monto de un acuerdo comercial con proveedor, si aplica" },
       tipo_pago: { type: ["string", "null"], enum: ["proveedor", "reembolso_rodrigo", null], description: "Si Gary indica si el pago fue directo al proveedor o reembolso a Rodrigo" },
+      numero_etapa: { type: ["string", "null"], description: "Número/nombre de etapa mencionado para consultar su estado de avance (intent ESTADO_ETAPA)" },
       confirma: { type: ["boolean", "null"], description: "Si el mensaje es una respuesta afirmativa/negativa a una pregunta de confirmación pendiente" },
     },
     required: ["intent"],
   },
 };
 
-function systemPrompt({ rol, catalogos, estadoPendiente }) {
+function systemPrompt({ rol, catalogos, estadoPendiente, hayImagen }) {
   return [
     "Eres el clasificador de intención del bot SINAN, un bot de WhatsApp para control financiero de una constructora chilena.",
     `El mensaje viene de un usuario con rol "${rol}".`,
     "Tu única tarea es llamar a la herramienta clasificar_mensaje_sinan con la intención y las entidades que puedas extraer del texto y/o la imagen adjunta.",
     "No generes texto de respuesta para el usuario final — eso lo decide otro componente del sistema.",
+    hayImagen && !estadoPendiente
+      ? "El mensaje trae una imagen adjunta (boleta/factura/comprobante). NUNCA uses DESCONOCIDO solo porque no hay texto — clasifica como REGISTRAR_RENDICION (o REGISTRAR_PAGO si el texto deja claro que es un comprobante de un pago que Gary está marcando) e intenta leer monto, proveedor, fecha y tipo de documento de la imagen. Si la imagen está borrosa o no se puede leer el monto, de todas formas usa REGISTRAR_RENDICION con legible_imagen=false y monto_imagen=null — el sistema le preguntará el monto al usuario."
+      : "",
+    hayImagen
+      ? "Para la imagen adjunta: extrae monto_imagen, proveedor (nombre/razón social del documento), fecha_documento (YYYY-MM-DD si es legible), tipo_documento (boleta/factura/comprobante_transferencia/otro) y legible_imagen (true/false según puedas leer el contenido con confianza)."
+      : "",
+    "Si el mensaje es un saludo simple (hola, buenas, buenos días, etc.) sin más contenido y no hay conversación pendiente, usa intent PEDIR_AYUDA.",
     "Si el mensaje es corto y parece responder una pregunta que el bot hizo previamente (ej: solo dice un nombre de etapa, 'sí', 'no', un monto), usa intent RESPONDER_PREGUNTA_PENDIENTE y llena las entidades que correspondan a esa respuesta.",
+    "Si el usuario pregunta por el avance/estado de una etapa específica (ej: 'cómo va la etapa 2 de Codegua'), usa intent ESTADO_ETAPA con obra y numero_etapa.",
     catalogos?.obras?.length ? `Obras activas conocidas: ${catalogos.obras.join(", ")}.` : "",
     catalogos?.proveedores?.length ? `Proveedores conocidos: ${catalogos.proveedores.join(", ")}.` : "",
     estadoPendiente
@@ -72,7 +85,7 @@ async function extraerYClasificar({ texto, imagen, estadoPendiente, rol, catalog
     const resp = await client.messages.create({
       model: config.ANTHROPIC_MODEL,
       max_tokens: 1024,
-      system: systemPrompt({ rol, catalogos, estadoPendiente }),
+      system: systemPrompt({ rol, catalogos, estadoPendiente, hayImagen: !!imagen?.buffer }),
       tools: [TOOL],
       tool_choice: { type: "tool", name: TOOL.name },
       messages: [{ role: "user", content: contenido }],

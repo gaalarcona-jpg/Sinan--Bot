@@ -25,17 +25,20 @@ async function eficienciaPorItem(obraId) {
   }));
 }
 
-function filaGasto(g) {
+function filaGasto(g, nombreObra) {
   return {
     id: g.id,
-    tipo: g.tipo,
+    fecha: g.fecha_documento ? fmtFecha(g.fecha_documento) : "",
+    obra: nombreObra || "",
     etapa: g.etapa_nombre || "",
     item: g.item_nombre || "",
     proveedor: g.proveedor_nombre || "",
+    descripcion: g.descripcion || "",
     monto: Number(g.monto),
     estado: g.estado,
-    fecha: fmtFecha(g.creado_en),
-    descripcion: g.descripcion || "",
+    usuario: g.usuario_nombre || "",
+    linkImagen: g.imagen_drive_link || "",
+    fechaRegistro: fmtFecha(g.creado_en),
   };
 }
 
@@ -49,7 +52,7 @@ const rodrigo = {
     ]);
     const buffer = await excel.construirReporteObra({
       nombreObra: obra.nombre,
-      filasGastos: gastosDetalle.map(filaGasto),
+      filasGastos: gastosDetalle.map((g) => filaGasto(g, obra.nombre)),
       filasEficiencia,
     });
     return drive.subirReporte(buffer, `${obra.nombre}_${Date.now()}.xlsx`);
@@ -79,7 +82,7 @@ const gary = {
     );
     const buffer = await excel.construirReporteObra({
       nombreObra: obra.nombre,
-      filasGastos: gastosDetalle.map(filaGasto),
+      filasGastos: gastosDetalle.map((g) => filaGasto(g, obra.nombre)),
       filasEficiencia,
       filasMargen,
     });
