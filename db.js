@@ -55,6 +55,17 @@ const obras = {
     );
     return rows[0] || null;
   },
+  // Todas las coincidencias (no solo la primera) — para distinguir un match
+  // único de uno ambiguo (ej: "Peñaflor" matchea dos obras distintas) y poder
+  // pedirle al usuario que elija en vez de adivinar.
+  async buscarCandidatos(nombre) {
+    if (!nombre) return [];
+    const { rows } = await query(
+      "SELECT * FROM obras WHERE activa = true AND nombre ILIKE $1 ORDER BY nombre",
+      [`%${nombre}%`]
+    );
+    return rows;
+  },
   async crear({ nombre, bonoPorEtapa = 0 }) {
     const { rows } = await query(
       "INSERT INTO obras (nombre, bono_por_etapa) VALUES ($1, $2) RETURNING *",

@@ -33,11 +33,51 @@ function extraerTextoYMedia(mensajes) {
   return { texto: textos.join("\n"), media };
 }
 
+const EMOJI_NUMEROS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
+const numeroEmoji = (n) => EMOJI_NUMEROS[n - 1] || `${n}.`;
+
+// Pregunta de obra con lista numerada: usa los candidatos ambiguos si los hay
+// (ej: "Peñaflor" matcheó 2 obras), o todas las obras activas si no matcheó
+// ninguna — así el usuario siempre puede responder con un número.
+async function preguntaObra(datos) {
+  let candidatos = datos.obraCandidatos;
+  let intro = "¿A cuál obra corresponde?";
+  if (!candidatos?.length) {
+    candidatos = await db.obras.listar();
+    if (!candidatos.length) {
+      return { pregunta: "Todavía no hay obras registradas — pídele a Gary que cree una con \"obra nueva / Nombre\".", datosExtra: {} };
+    }
+  } else {
+    intro = "No encontré exactamente esa obra. ¿Te refieres a alguna de estas?";
+  }
+  const lista = candidatos.map((c, i) => `${numeroEmoji(i + 1)} ${c.nombre}`).join("\n");
+  return {
+    pregunta: `${intro}\n${lista}`,
+    datosExtra: { opcionesPendientes: { campo: "obra", lista: candidatos.map((c) => ({ id: c.id, nombre: c.nombre })) }, obraCandidatos: undefined },
+  };
+}
+
+function construirResumenConfirmacion(datos, monto) {
+  const lineas = [
+    `- Obra: ${datos.obraNombre}`,
+    `- Etapa: ${datos.etapaNombre}`,
+    `- Ítem: ${datos.itemNombre}`,
+    `- Monto: ${fmtMonto(monto)}`,
+  ];
+  if (datos.proveedorNombre) lineas.push(`- Proveedor: ${datos.proveedorNombre}`);
+  return `📋 Voy a registrar:\n${lineas.join("\n")}\n¿Confirmas? (sí/no)`;
+}
+
 async function resolverEntidades(datos) {
   const out = { ...datos };
   if (datos.obra && !out.obraId) {
-    const obra = await db.obras.porNombreAprox(datos.obra);
-    if (obra) { out.obraId = obra.id; out.obraNombre = obra.nombre; }
+    const candidatos = await db.obras.buscarCandidatos(datos.obra);
+    if (candidatos.length === 1) {
+      out.obraId = candidatos[0].id;
+      out.obraNombre = candidatos[0].nombre;
+    } else if (candidatos.length > 1) {
+      out.obraCandidatos = candidatos.map((c) => ({ id: c.id, nombre: c.nombre }));
+    }
   }
   if (datos.etapa && out.obraId && !out.etapaId) {
     const etapa = await db.etapas.porObraYNombreAprox(out.obraId, datos.etapa);
@@ -70,19 +110,21 @@ async function descargarYSubirMedia(media, usuario) {
 // ============================================================
 
 async function handleRegistrarRendicion(usuario, datos) {
-  const faltantes = [];
-  if (!datos.obraId) faltantes.push("obra");
-  else if (!datos.etapaId) faltantes.push("etapa");
-  else if (!datos.itemId) faltantes.push("item");
-
-  if (faltantes.length) {
-    const campo = faltantes[0];
-    const preguntas = {
-      obra: "¿Para qué obra fue esta compra?",
-      etapa: `¿En qué etapa de ${datos.obraNombre || "la obra"} va esto?`,
-      item: "¿A qué ítem del presupuesto corresponde? (ej: Fierros, Mano de obra, Hormigón)",
+  if (!datos.obraId) {
+    const r = await preguntaObra(datos);
+    return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
+  }
+  if (!datos.etapaId) {
+    return {
+      completo: false,
+      pregunta: `¿En qué etapa de ${datos.obraNombre} va esto? Ej: Etapa 1 Fundaciones, Etapa 2 Estructura...`,
     };
-    return { completo: false, pregunta: preguntas[campo] };
+  }
+  if (!datos.itemId) {
+    return {
+      completo: false,
+      pregunta: "¿A qué ítem del presupuesto corresponde? Ej: Cemento, Fierros, Mano de obra...",
+    };
   }
 
   const montoTexto = datos.monto ?? null;
@@ -103,6 +145,24 @@ async function handleRegistrarRendicion(usuario, datos) {
   const monto = datos.discrepanciaResuelta ? datos.monto : (montoTexto ?? montoImagen);
   if (monto == null) {
     return { completo: false, pregunta: "No pude leer el monto de la boleta y no lo escribiste — ¿cuál es el monto total?" };
+  }
+
+  if (!datos.confirmacionPendiente) {
+    return {
+      completo: false,
+      pregunta: construirResumenConfirmacion(datos, monto),
+      datosExtra: { confirmacionPendiente: true },
+    };
+  }
+  if (datos.confirma === false) {
+    return {
+      completo: false,
+      pregunta: "Ok, no lo registro todavía. ¿Qué quieres corregir? (obra, etapa, ítem, monto o proveedor)",
+      datosExtra: { confirmacionPendiente: false, confirma: null },
+    };
+  }
+  if (datos.confirma !== true) {
+    return { completo: false, pregunta: construirResumenConfirmacion(datos, monto), datosExtra: { confirmacionPendiente: true } };
   }
 
   const alertaRazonSocial = !!(datos.razon_social_detectada && !contieneRazonSocialValida(datos.razon_social_detectada));
@@ -197,7 +257,10 @@ async function handleRegistrarPago(usuario, datos) {
 }
 
 async function handleCompletarEtapa(usuario, datos) {
-  if (!datos.obraId) return { completo: false, pregunta: "¿Qué obra completó una etapa?" };
+  if (!datos.obraId) {
+    const r = await preguntaObra(datos);
+    return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
+  }
   if (!datos.etapaId) return { completo: false, pregunta: `¿Qué etapa de ${datos.obraNombre} se completó?` };
 
   const etapa = await db.etapas.marcarCompletada(datos.etapaId);
@@ -220,7 +283,10 @@ async function handleCompletarEtapa(usuario, datos) {
 }
 
 async function handleExportarReporte(usuario, datos) {
-  if (!datos.obraId) return { completo: false, pregunta: "¿Qué obra quieres exportar?" };
+  if (!datos.obraId) {
+    const r = await preguntaObra(datos);
+    return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
+  }
   const link = usuario.rol === "gary"
     ? await reports.gary.exportarObraConMargen(datos.obraId)
     : await reports.rodrigo.exportarObra(datos.obraId);
@@ -245,7 +311,8 @@ async function handleConsultarResumen(usuario, datos) {
     const t = await reports.gary.resumenDiarioPendientesTexto();
     return { completo: true, mensaje: t };
   }
-  return { completo: false, pregunta: "¿De qué obra quieres el resumen?" };
+  const r = await preguntaObra(datos);
+  return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
 }
 
 function handleAyuda(usuario) {
@@ -382,29 +449,47 @@ async function procesarMensaje(usuario, mensajes) {
   }
 
   const estado = await db.estadoConversacional.obtener(usuario.id);
-  const [obras, proveedores] = await Promise.all([db.obras.listar(), db.proveedores.listar()]);
-  const catalogos = { obras: obras.map((o) => o.nombre), proveedores: proveedores.map((p) => p.nombre) };
 
-  let claudeResp;
-  try {
-    claudeResp = await claude.extraerYClasificar({
-      texto,
-      imagen: imagenSubida ? { buffer: imagenSubida.buffer, mimeType: imagenSubida.mimeType } : null,
-      estadoPendiente: estado, rol: usuario.rol, catalogos,
-    });
-  } catch (e) {
-    console.error("Error clasificando mensaje con Claude:", e.message);
-    await whatsapp.sendText(usuario.telefono, "Tuve un problema procesando tu mensaje, ¿puedes intentar de nuevo?");
-    return;
+  // Atajo determinista: si el bot mostró una lista numerada (preguntaObra) y
+  // el usuario responde solo con un número, se resuelve directo sin pasar por
+  // Claude — más rápido y sin riesgo de que la IA interprete mal un dígito.
+  const opciones = estado?.datos_parciales?.opcionesPendientes;
+  const seleccion = !media && /^\s*\d{1,2}\s*$/.test(texto || "") ? parseInt(texto.trim(), 10) : null;
+  let extraido, intentFinal, datos;
+
+  if (opciones && seleccion && opciones.lista[seleccion - 1]) {
+    const elegido = opciones.lista[seleccion - 1];
+    datos = { ...estado.datos_parciales };
+    delete datos.opcionesPendientes;
+    datos[`${opciones.campo}Id`] = elegido.id;
+    datos[`${opciones.campo}Nombre`] = elegido.nombre;
+    intentFinal = estado.intent;
+    extraido = {};
+  } else {
+    const [obras, proveedores] = await Promise.all([db.obras.listar(), db.proveedores.listar()]);
+    const catalogos = { obras: obras.map((o) => o.nombre), proveedores: proveedores.map((p) => p.nombre) };
+
+    let claudeResp;
+    try {
+      claudeResp = await claude.extraerYClasificar({
+        texto,
+        imagen: imagenSubida ? { buffer: imagenSubida.buffer, mimeType: imagenSubida.mimeType } : null,
+        estadoPendiente: estado, rol: usuario.rol, catalogos,
+      });
+    } catch (e) {
+      console.error("Error clasificando mensaje con Claude:", e.message);
+      await whatsapp.sendText(usuario.telefono, "Tuve un problema procesando tu mensaje, ¿puedes intentar de nuevo?");
+      return;
+    }
+
+    extraido = claudeResp.resultado;
+    intentFinal = extraido.intent;
+    if (intentFinal === "RESPONDER_PREGUNTA_PENDIENTE" && estado) intentFinal = estado.intent;
+    if (!estado && intentFinal === "RESPONDER_PREGUNTA_PENDIENTE") intentFinal = "DESCONOCIDO";
+
+    datos = { ...(estado?.datos_parciales || {}), ...limpiarNoNulos(extraido) };
+    delete datos.intent;
   }
-
-  const extraido = claudeResp.resultado;
-  let intentFinal = extraido.intent;
-  if (intentFinal === "RESPONDER_PREGUNTA_PENDIENTE" && estado) intentFinal = estado.intent;
-  if (!estado && intentFinal === "RESPONDER_PREGUNTA_PENDIENTE") intentFinal = "DESCONOCIDO";
-
-  let datos = { ...(estado?.datos_parciales || {}), ...limpiarNoNulos(extraido) };
-  delete datos.intent;
 
   if (estado?.datos_parciales?.discrepanciaPendiente) {
     if (extraido.monto != null) datos.monto = extraido.monto;
