@@ -57,19 +57,49 @@ const numeroEmoji = (n) => EMOJI_NUMEROS[n - 1] || `${n}.`;
 // ninguna — así el usuario siempre puede responder con un número.
 async function preguntaObra(datos) {
   let candidatos = datos.obraCandidatos;
-  let intro = "¿A cuál obra corresponde?";
+  let intro = "❓ ¿A cuál obra corresponde?";
   if (!candidatos?.length) {
     candidatos = await db.obras.listar();
     if (!candidatos.length) {
       return { pregunta: "Todavía no hay obras registradas — pídele a Gary que cree una con \"obra nueva / Nombre\".", datosExtra: {} };
     }
   } else {
-    intro = "No encontré exactamente esa obra. ¿Te refieres a alguna de estas?";
+    intro = "❓ No encontré exactamente esa obra. ¿Te refieres a alguna de estas?";
   }
   const lista = candidatos.map((c, i) => `${numeroEmoji(i + 1)} ${c.nombre}`).join("\n");
   return {
     pregunta: `${intro}\n${lista}`,
     datosExtra: { opcionesPendientes: { campo: "obra", lista: candidatos.map((c) => ({ id: c.id, nombre: c.nombre })) }, obraCandidatos: undefined },
+  };
+}
+
+async function preguntaEtapa(datos) {
+  const etapas = await db.etapas.listarPorObra(datos.obraId);
+  if (!etapas.length) {
+    return {
+      pregunta: `❓ ${datos.obraNombre} todavía no tiene etapas cargadas — pídele a Gary que cree una con "etapa nueva / ${datos.obraNombre} / Nombre".`,
+      datosExtra: {},
+    };
+  }
+  const lista = etapas.map((e, i) => `${numeroEmoji(i + 1)} ${e.nombre}`).join("\n");
+  return {
+    pregunta: `❓ ¿A qué etapa de ${datos.obraNombre} corresponde?\n${lista}`,
+    datosExtra: { opcionesPendientes: { campo: "etapa", lista: etapas.map((e) => ({ id: e.id, nombre: e.nombre })) } },
+  };
+}
+
+async function preguntaItem(datos) {
+  const items = await db.itemsPresupuesto.listarPorEtapa(datos.etapaId);
+  if (!items.length) {
+    return {
+      pregunta: `❓ ${datos.etapaNombre} todavía no tiene ítems de presupuesto cargados — pídele a Gary que cree uno con "presupuesto / ${datos.obraNombre} / ${datos.etapaNombre} / Nombre / Monto".`,
+      datosExtra: {},
+    };
+  }
+  const lista = items.map((it, i) => `${numeroEmoji(i + 1)} ${it.nombre}`).join("\n");
+  return {
+    pregunta: `❓ ¿A qué ítem del presupuesto corresponde?\n${lista}`,
+    datosExtra: { opcionesPendientes: { campo: "item", lista: items.map((it) => ({ id: it.id, nombre: it.nombre })) } },
   };
 }
 
@@ -154,16 +184,12 @@ async function handleRegistrarRendicion(usuario, datos) {
     return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
   }
   if (!datos.etapaId) {
-    return {
-      completo: false,
-      pregunta: `¿En qué etapa de ${datos.obraNombre} va esto? Ej: Etapa 1 Fundaciones, Etapa 2 Estructura...`,
-    };
+    const r = await preguntaEtapa(datos);
+    return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
   }
   if (!datos.itemId) {
-    return {
-      completo: false,
-      pregunta: "¿A qué ítem del presupuesto corresponde? Ej: Cemento, Fierros, Mano de obra...",
-    };
+    const r = await preguntaItem(datos);
+    return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
   }
 
   const montoTexto = datos.monto ?? null;
@@ -231,7 +257,7 @@ async function handleRegistrarRendicion(usuario, datos) {
       .catch((e) => console.error("No se pudo renombrar imagen en Drive:", e.message));
   }
 
-  let mensaje = `✅ Rendición #${gasto.id} registrada. Las rendiciones se revisan semanalmente para pago — se incluirá en el reporte a Finanzas.`;
+  let mensaje = `✅ Listo, registré el gasto #${gasto.id}. Queda pendiente de pago — se revisa en el corte semanal con Finanzas.`;
   if (alertaRazonSocial) {
     mensaje += `\n\n⚠️ La boleta no menciona a Sinan/Constructora Sinan — quedó marcada para revisión de Finanzas.`;
   }

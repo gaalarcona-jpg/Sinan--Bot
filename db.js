@@ -150,6 +150,10 @@ const itemsPresupuesto = {
     return rows[0] || null;
   },
   async listarPorEtapa(etapaId) {
+    const { rows } = await query("SELECT * FROM items_presupuesto WHERE etapa_id = $1 ORDER BY id", [etapaId]);
+    return rows;
+  },
+  async listarPorEtapa(etapaId) {
     const { rows } = await query("SELECT * FROM items_presupuesto WHERE etapa_id = $1 ORDER BY nombre", [etapaId]);
     return rows;
   },

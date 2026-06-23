@@ -28,6 +28,10 @@ const config = {
   PORT: process.env.PORT || 3000,
   DATABASE_URL: process.env.DATABASE_URL,
   WHATSAPP_API_KEY: process.env.WHATSAPP_API_KEY,
+  // Token directo de Meta — opcional, no bloquea el boot si falta. Necesario
+  // solo para descargar binarios de media cuando 360dialog devuelve una URL
+  // del CDN de Meta (lookaside.fbsbx.com) en vez de una propia.
+  META_TOKEN: process.env.META_TOKEN || null,
   WEBHOOK_VERIFY_TOKEN: process.env.WEBHOOK_VERIFY_TOKEN,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5",
