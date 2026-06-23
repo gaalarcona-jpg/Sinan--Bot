@@ -19,15 +19,24 @@ async function sendText(to, body) {
 }
 
 // Descarga un media de WhatsApp: primero se resuelve la URL real del media-id,
-// luego se descarga el binario. Ambas llamadas requieren el header D360-API-KEY.
+// luego se descarga el binario. La metadata siempre requiere D360-API-KEY; la
+// URL del binario a veces apunta a un host de Meta (no de 360dialog) que
+// rechaza ese header con 401 — en ese caso se reintenta sin él.
 async function downloadMedia(mediaId) {
   const meta = await axios.get(`${BASE_URL}/${mediaId}`, { headers: { "D360-API-KEY": config.WHATSAPP_API_KEY } });
   const { url, mime_type } = meta.data;
-  const binResp = await axios.get(url, {
-    headers: { "D360-API-KEY": config.WHATSAPP_API_KEY },
-    responseType: "arraybuffer",
-  });
-  return { buffer: Buffer.from(binResp.data), mimeType: mime_type || "application/octet-stream" };
+  try {
+    const binResp = await axios.get(url, {
+      headers: { "D360-API-KEY": config.WHATSAPP_API_KEY },
+      responseType: "arraybuffer",
+    });
+    return { buffer: Buffer.from(binResp.data), mimeType: mime_type || "application/octet-stream" };
+  } catch (e) {
+    if (e.response?.status !== 401) throw e;
+    console.error("Descarga de binario con D360-API-KEY dio 401, reintentando sin el header:", url);
+    const binResp = await axios.get(url, { responseType: "arraybuffer" });
+    return { buffer: Buffer.from(binResp.data), mimeType: mime_type || "application/octet-stream" };
+  }
 }
 
 module.exports = { sendText, downloadMedia };

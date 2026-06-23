@@ -15,10 +15,22 @@ function limpiarNoNulos(obj) {
   return out;
 }
 
-function extraerTextoYMedia(msg) {
-  if (msg.type === "text") return { texto: msg.text?.body?.trim() || "", media: null };
-  const media = msg.image || msg.document || null;
-  return { texto: media?.caption?.trim() || "", media: media ? { id: media.id, tipo: msg.type } : null };
+// mensajes: uno o más webhooks agrupados por index.js (ver BUFFER_MS) — se
+// combinan en un solo texto y se usa la primera imagen/documento adjunto.
+function extraerTextoYMedia(mensajes) {
+  const textos = [];
+  let media = null;
+  for (const msg of mensajes) {
+    if (msg.type === "text") {
+      if (msg.text?.body?.trim()) textos.push(msg.text.body.trim());
+      continue;
+    }
+    const m = msg.image || msg.document || null;
+    if (!m) continue;
+    if (m.caption?.trim()) textos.push(m.caption.trim());
+    if (!media) media = { id: m.id, tipo: msg.type };
+  }
+  return { texto: textos.join("\n"), media };
 }
 
 async function resolverEntidades(datos) {
@@ -335,8 +347,8 @@ async function intentarComandoAdmin(usuario, texto) {
 // ============================================================
 // ENTRYPOINT
 // ============================================================
-async function procesarMensaje(usuario, msg) {
-  const { texto, media } = extraerTextoYMedia(msg);
+async function procesarMensaje(usuario, mensajes) {
+  const { texto, media } = extraerTextoYMedia(mensajes);
 
   if (media || texto) {
     const respuestaAdmin = texto ? await intentarComandoAdmin(usuario, texto).catch((e) => {
@@ -350,12 +362,23 @@ async function procesarMensaje(usuario, msg) {
   }
 
   let imagenSubida = null;
+  let errorMedia = null;
   if (media) {
     try {
       imagenSubida = await descargarYSubirMedia(media, usuario);
     } catch (e) {
-      console.error("Error descargando/subiendo media:", e.message);
+      const status = e.response?.status;
+      console.error(
+        "Error descargando/subiendo media:",
+        status || "", e.message, status ? JSON.stringify(e.response?.data) : ""
+      );
+      errorMedia = true;
     }
+  }
+
+  if (errorMedia && !texto) {
+    await whatsapp.sendText(usuario.telefono, "No pude leer la imagen que enviaste — ¿puedes reenviarla?");
+    return;
   }
 
   const estado = await db.estadoConversacional.obtener(usuario.id);

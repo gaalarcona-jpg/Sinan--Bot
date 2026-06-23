@@ -53,6 +53,30 @@ app.get("/webhook", (req, res) => {
   }
 });
 
+// Gary suele mandar imagen y texto en mensajes consecutivos (ej: foto de la
+// boleta y al toque "Codegua Etapa 1 materiales cemento"). Cada uno llega como
+// un webhook independiente, así que se acumulan por usuario durante BUFFER_MS
+// y se procesan juntos en una sola llamada a Claude — si se procesara cada
+// webhook al instante, el bot preguntaría por datos que ya iban a llegar.
+const BUFFER_MS = 3000;
+const buffers = new Map(); // usuario.id -> { mensajes: [], timer }
+
+function encolarMensaje(usuario, msg) {
+  let entry = buffers.get(usuario.id);
+  if (!entry) {
+    entry = { mensajes: [], timer: null };
+    buffers.set(usuario.id, entry);
+  }
+  entry.mensajes.push(msg);
+  clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    buffers.delete(usuario.id);
+    flows.procesarMensaje(usuario, entry.mensajes).catch((err) => {
+      console.error("Error procesando mensajes agrupados:", err.message);
+    });
+  }, BUFFER_MS);
+}
+
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   try {
@@ -71,7 +95,7 @@ app.post("/webhook", async (req, res) => {
       console.log("No autorizado:", telefono);
       return;
     }
-    await flows.procesarMensaje(usuario, msg);
+    encolarMensaje(usuario, msg);
   } catch (err) {
     console.error("Error procesando webhook:", err.message);
   }
