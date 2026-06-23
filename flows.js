@@ -3,7 +3,7 @@ const whatsapp = require("./whatsapp");
 const drive = require("./drive");
 const claude = require("./claude");
 const reports = require("./reports");
-const { fmtMonto, fmtFecha, contieneRazonSocialValida } = require("./format");
+const { fmtMonto, fmtFecha, contieneRazonSocialValida, normalizarTel } = require("./format");
 
 const TOLERANCIA_DISCREPANCIA = 1; // pesos — diferencias menores se consideran "el mismo monto"
 
@@ -287,7 +287,7 @@ async function intentarComandoAdmin(usuario, texto) {
 
   if (cmd === "agregar usuario" && partes.length >= 4) {
     const [, nombre, telefono, rol] = partes;
-    const creado = await db.usuarios.crear({ nombre, telefono: telefono.replace(/[^\d]/g, ""), rol: rol.toLowerCase() });
+    const creado = await db.usuarios.crear({ nombre, telefono: normalizarTel(telefono), rol: rol.toLowerCase() });
     return `✅ Usuario ${creado.nombre} (${creado.rol}) agregado.`;
   }
   if (cmd === "agregar proveedor" && partes.length >= 2) {
