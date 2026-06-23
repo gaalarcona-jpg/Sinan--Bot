@@ -2,10 +2,13 @@ const { google } = require("googleapis");
 const { Readable } = require("stream");
 const config = require("./config");
 
-const auth = new google.auth.GoogleAuth({
-  credentials: config.GOOGLE_CREDENTIALS,
-  scopes: ["https://www.googleapis.com/auth/drive"],
-});
+// OAuth de la cuenta personal de Gary (no service account): las service
+// accounts no tienen cuota de almacenamiento propia, y sin Google Workspace no
+// hay Unidades Compartidas donde darles una — los archivos quedan en el Drive
+// real de Gary, con su cuota de 15GB. El refresh token no expira mientras no
+// se revoque el acceso desde la cuenta de Google.
+const auth = new google.auth.OAuth2(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET);
+auth.setCredentials({ refresh_token: config.GOOGLE_REFRESH_TOKEN });
 
 const drive = google.drive({ version: "v3", auth });
 

@@ -7,9 +7,9 @@ Bot de WhatsApp para rendiciones y control financiero de obras de construcción,
 - Node.js + Express (servidor HTTP / webhook receiver)
 - Postgres (Railway addon) vía `pg`
 - Claude API (`@anthropic-ai/sdk`) con visión, para clasificar intención y extraer datos de boletas/comprobantes
-- Google Drive API (`googleapis`, cuenta de servicio) para almacenar imágenes y backups — Railway tiene disco efímero
+- Google Drive API (`googleapis`, OAuth de cuenta personal de Gmail) para almacenar imágenes y backups — Railway tiene disco efímero. No es cuenta de servicio: las service accounts no tienen cuota de almacenamiento propia y sin Google Workspace no hay Unidades Compartidas donde dársela
 - `exceljs` para reportes, `node-cron` para backup diario y resumen diario
-- axios (llamadas REST a 360dialog)
+- axios (envío de mensajes vía 360dialog; descarga de media vía Meta Cloud API directo — ver nota abajo)
 
 ## Estructura de archivos
 
@@ -22,7 +22,7 @@ Bot de WhatsApp para rendiciones y control financiero de obras de construcción,
 - `excel.js` — construye workbooks a partir de filas ya armadas; no conoce roles ni hace queries
 - `reports.js` — namespaces `reports.rodrigo.*` / `reports.gary.*` disjuntos
 - `flows.js` — router de intención + máquina de estados conversacional + handlers de los 6 flujos + comandos admin
-- `whatsapp.js` — `sendText`, `downloadMedia` sobre la API de 360dialog
+- `whatsapp.js` — `sendText` vía 360dialog; `downloadMedia` vía Meta Cloud API directo (`graph.facebook.com`, header `Authorization: Bearer META_TOKEN`) — 360dialog actúa como Tech Provider ante Meta, así que la URL de binario que devolvía (`lookaside.fbsbx.com`) quedaba ligada a su propio App ID y ningún token nuestro podía autenticarla
 - `backup.js` — export JSON de todas las tablas a Drive, invocado por cron
 - `format.js` — helpers puros (`fmtMonto`, `normalizarTel`, `fmtFecha`, `contieneRazonSocialValida`)
 - `migrate.js` + `migrations/*.sql` — runner de migraciones propio (sin Knex/Prisma)
@@ -35,7 +35,7 @@ npm run migrate   # o: node migrate.js
 node index.js     # "npm start" ya encadena migrate.js && index.js
 ```
 
-Variables de entorno — ver `.env.example`. Obligatorias: `DATABASE_URL`, `WHATSAPP_API_KEY`, `WEBHOOK_VERIFY_TOKEN`, `ANTHROPIC_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`, `GOOGLE_DRIVE_FOLDER_ID_BOLETAS/BACKUPS/REPORTES`. `config.js` falla rápido (`process.exit(1)`) si falta alguna.
+Variables de entorno — ver `.env.example`. Obligatorias: `DATABASE_URL`, `WHATSAPP_API_KEY`, `META_TOKEN`, `WEBHOOK_VERIFY_TOKEN`, `ANTHROPIC_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_DRIVE_FOLDER_ID_BOLETAS/BACKUPS/REPORTES`. `config.js` falla rápido (`process.exit(1)`) si falta alguna. `GOOGLE_REFRESH_TOKEN` se obtiene una vez con un flujo OAuth manual (autorizar con la cuenta de Gmail dueña de las carpetas, capturar el `code` de la redirect URL, canjearlo por tokens) — si se revoca el acceso desde la cuenta de Google, hay que repetir el flujo.
 
 `GARY_NUMBER_1/2` y `RODRIGO_NUMBER` de v1 ya no existen — los usuarios autorizados viven en la tabla `usuarios` (columna `rol`: `gary`/`rodrigo`/`finanzas`/`admin`). Se agregan con el comando admin `agregar usuario / Nombre / Teléfono / rol` (solo Gary/admin) o insertando directo en Postgres.
 

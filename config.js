@@ -1,9 +1,12 @@
 const REQUERIDAS = [
   "DATABASE_URL",
   "WHATSAPP_API_KEY",
+  "META_TOKEN",
   "WEBHOOK_VERIFY_TOKEN",
   "ANTHROPIC_API_KEY",
-  "GOOGLE_SERVICE_ACCOUNT_JSON_BASE64",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_REFRESH_TOKEN",
   "GOOGLE_DRIVE_FOLDER_ID_BOLETAS",
   "GOOGLE_DRIVE_FOLDER_ID_BACKUPS",
   "GOOGLE_DRIVE_FOLDER_ID_REPORTES",
@@ -15,27 +18,23 @@ if (faltantes.length) {
   process.exit(1);
 }
 
-let googleCredentials;
-try {
-  const raw = Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, "base64").toString("utf8");
-  googleCredentials = JSON.parse(raw);
-} catch (e) {
-  console.error("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 no es un base64/JSON válido:", e.message);
-  process.exit(1);
-}
-
 const config = {
   PORT: process.env.PORT || 3000,
   DATABASE_URL: process.env.DATABASE_URL,
   WHATSAPP_API_KEY: process.env.WHATSAPP_API_KEY,
-  // Token directo de Meta — opcional, no bloquea el boot si falta. Necesario
-  // solo para descargar binarios de media cuando 360dialog devuelve una URL
-  // del CDN de Meta (lookaside.fbsbx.com) en vez de una propia.
-  META_TOKEN: process.env.META_TOKEN || null,
+  // Token directo de Meta — única vía para descargar media (graph.facebook.com),
+  // 360dialog queda fuera de esa ruta porque la URL de binario que devolvía
+  // quedaba ligada a su propio App ID ante Meta, no al nuestro.
+  META_TOKEN: process.env.META_TOKEN,
   WEBHOOK_VERIFY_TOKEN: process.env.WEBHOOK_VERIFY_TOKEN,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5",
-  GOOGLE_CREDENTIALS: googleCredentials,
+  // Drive corre con OAuth de una cuenta personal (no service account): las
+  // service accounts no tienen cuota de almacenamiento propia en Gmail
+  // personal y no hay Unidades Compartidas disponibles sin Google Workspace.
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+  GOOGLE_REFRESH_TOKEN: process.env.GOOGLE_REFRESH_TOKEN,
   GOOGLE_DRIVE_FOLDER_ID_BOLETAS: process.env.GOOGLE_DRIVE_FOLDER_ID_BOLETAS,
   GOOGLE_DRIVE_FOLDER_ID_BACKUPS: process.env.GOOGLE_DRIVE_FOLDER_ID_BACKUPS,
   GOOGLE_DRIVE_FOLDER_ID_REPORTES: process.env.GOOGLE_DRIVE_FOLDER_ID_REPORTES,
