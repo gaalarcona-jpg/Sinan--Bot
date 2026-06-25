@@ -618,6 +618,8 @@ async function procesarMensaje(usuario, mensajes) {
     delete datos.intent;
   }
 
+  console.log(`[flows] Intent final: ${intentFinal}, media: ${!!media}, usuario: ${usuario.telefono}`);
+
   if (estado?.datos_parciales?.discrepanciaPendiente) {
     if (extraido.monto != null) datos.monto = extraido.monto;
     datos.discrepanciaResuelta = true;
