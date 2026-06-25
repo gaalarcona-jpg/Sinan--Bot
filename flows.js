@@ -598,6 +598,22 @@ async function procesarMensaje(usuario, mensajes) {
     if (intentFinal === "RESPONDER_PREGUNTA_PENDIENTE" && estado) intentFinal = estado.intent;
     if (!estado && intentFinal === "RESPONDER_PREGUNTA_PENDIENTE") intentFinal = "DESCONOCIDO";
 
+    // Defensa en profundidad: imagen + REGISTRAR_PAGO sin id_rendicion_mencionado
+    // explícito → casi seguro falso positivo por "pago/pagos" en descripción de compra.
+    if (
+      intentFinal === "REGISTRAR_PAGO" &&
+      media &&
+      !estado &&
+      !extraido.id_rendicion_mencionado
+    ) {
+      console.warn(
+        "[guard] REGISTRAR_PAGO con imagen y sin id_rendicion_mencionado → forzando REGISTRAR_RENDICION.",
+        "texto:", texto, "extraido:", JSON.stringify(extraido)
+      );
+      intentFinal = "REGISTRAR_RENDICION";
+      extraido.intent = "REGISTRAR_RENDICION";
+    }
+
     datos = { ...(estado?.datos_parciales || {}), ...limpiarNoNulos(extraido) };
     delete datos.intent;
   }
