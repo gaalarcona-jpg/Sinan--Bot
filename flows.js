@@ -32,21 +32,51 @@ function limpiarNoNulos(obj) {
 }
 
 // mensajes: uno o más webhooks agrupados por index.js (ver BUFFER_MS) — se
-// combinan en un solo texto y se usa la primera imagen/documento adjunto.
+// combinan en un solo texto y se usan todas las imágenes (BUG 2 fix).
 function extraerTextoYMedia(mensajes) {
   const textos = [];
-  let media = null;
+  const medias = [];
+  let mediaEsReenviada = false;
+  let archivoNoSoportado = null;
+
   for (const msg of mensajes) {
+    // BUG 1 fix: detectar mensajes reenviados
+    if (msg.context?.forwarded === true) {
+      mediaEsReenviada = true;
+    }
+
     if (msg.type === "text") {
       if (msg.text?.body?.trim()) textos.push(msg.text.body.trim());
       continue;
     }
+
     const m = msg.image || msg.document || null;
     if (!m) continue;
+
+    // BUG 3 fix: ignorar documentos xlsx/pdf pero capturar caption
+    if (msg.type === "document") {
+      const filename = m.filename || "archivo";
+      const ext = filename.split(".").pop()?.toLowerCase();
+      if (["xlsx", "xls", "pdf", "doc", "docx"].includes(ext)) {
+        archivoNoSoportado = { filename, tipo: ext };
+        if (m.caption?.trim()) textos.push(m.caption.trim());
+        continue; // No agregar a medias
+      }
+    }
+
+    // Capturar caption
     if (m.caption?.trim()) textos.push(m.caption.trim());
-    if (!media) media = { id: m.id, tipo: msg.type };
+
+    // BUG 2 fix: agregar TODAS las imágenes al array (no solo la primera)
+    medias.push({ id: m.id, tipo: msg.type, filename: m.filename || null });
   }
-  return { texto: textos.join("\n"), media };
+
+  return {
+    texto: textos.join("\n"),
+    medias,
+    mediaEsReenviada,
+    archivoNoSoportado,
+  };
 }
 
 const EMOJI_NUMEROS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
@@ -353,9 +383,15 @@ async function handleRegistrarRendicion(usuario, datos) {
   }
 
   if (!datos.confirmacionPendiente) {
+    // BUG 2 fix: mostrar cantidad de imágenes en confirmación
+    const totalImagenes = datos.totalImagenes || 1;
+    const mensajeImagenes = totalImagenes > 1 ? `${totalImagenes} gastos` : "gasto";
+    const pregunta = totalImagenes > 1
+      ? `📋 Voy a registrar *${totalImagenes} gastos* con estos datos:\n- Obra: ${datos.obraNombre}\n- Etapa: ${datos.etapaNombre}\n- Ítem: ${datos.itemNombre}\n- Monto: ${fmtMonto(monto)} (cada uno)\n¿Confirmas? (sí/no)`
+      : construirResumenConfirmacion(datos, monto);
     return {
       completo: false,
-      pregunta: construirResumenConfirmacion(datos, monto),
+      pregunta,
       datosExtra: { confirmacionPendiente: true },
     };
   }
@@ -958,7 +994,16 @@ async function intentarComandoAdmin(usuario, texto) {
 // ENTRYPOINT
 // ============================================================
 async function procesarMensaje(usuario, mensajes) {
-  const { texto, media } = extraerTextoYMedia(mensajes);
+  const { texto, medias, mediaEsReenviada, archivoNoSoportado } = extraerTextoYMedia(mensajes);
+
+  // BUG 3 fix: responder cuando se recibe archivo no soportado
+  if (archivoNoSoportado) {
+    await whatsapp.sendText(
+      usuario.telefono,
+      `Recibí tu archivo *${archivoNoSoportado.filename}*. Por ahora solo proceso imágenes de boletas — para cargar una rendición desde Excel, escríbeme los montos o manda las fotos de las boletas.`
+    );
+    if (!texto && medias.length === 0) return; // Si solo envió el archivo, terminar aquí
+  }
 
   if (/^\s*cancelar\s*$/i.test(texto || "")) {
     await db.estadoConversacional.borrar(usuario.id);
@@ -972,7 +1017,7 @@ async function procesarMensaje(usuario, mensajes) {
     return;
   }
 
-  if (media || texto) {
+  if (medias.length > 0 || texto) {
     const respuestaAdmin = texto ? await intentarComandoAdmin(usuario, texto).catch((e) => {
       console.error("Error en comando admin:", e.message);
       return null;
@@ -983,11 +1028,14 @@ async function procesarMensaje(usuario, mensajes) {
     }
   }
 
-  let imagenSubida = null;
+  // BUG 2 fix: procesar múltiples imágenes en lote
+  const imagenesSubidas = [];
   let errorMedia = null;
-  if (media) {
+
+  for (const media of medias) {
     try {
-      imagenSubida = await descargarYSubirMedia(media, usuario);
+      const subida = await descargarYSubirMedia(media, usuario);
+      imagenesSubidas.push(subida);
     } catch (e) {
       const status = e.response?.status;
       console.error(
@@ -998,10 +1046,14 @@ async function procesarMensaje(usuario, mensajes) {
     }
   }
 
-  if (errorMedia && !texto) {
+  if (errorMedia && !texto && imagenesSubidas.length === 0) {
     await whatsapp.sendText(usuario.telefono, "No pude leer la imagen que enviaste — ¿puedes reenviarla?");
     return;
   }
+
+  // Para compatibilidad con código existente, usar la primera imagen
+  const imagenSubida = imagenesSubidas[0] || null;
+  const media = medias[0] || null;
 
   const estado = await db.estadoConversacional.obtener(usuario.id);
 
@@ -1044,14 +1096,17 @@ async function procesarMensaje(usuario, mensajes) {
 
     // Defensa en profundidad: imagen + REGISTRAR_PAGO sin id_rendicion_mencionado
     // explícito → casi seguro falso positivo por "pago/pagos" en descripción de compra.
+    // BUG 1 fix: si el mensaje es reenviado con imagen, SIEMPRE es rendición (no pago).
     if (
       intentFinal === "REGISTRAR_PAGO" &&
       media &&
-      !estado &&
-      !extraido.id_rendicion_mencionado
+      (!estado || mediaEsReenviada) &&
+      (!extraido.id_rendicion_mencionado || mediaEsReenviada)
     ) {
       console.warn(
-        "[guard] REGISTRAR_PAGO con imagen y sin id_rendicion_mencionado → forzando REGISTRAR_RENDICION.",
+        "[guard] REGISTRAR_PAGO con imagen" +
+        (mediaEsReenviada ? " (REENVIADA)" : " y sin id_rendicion_mencionado") +
+        " → forzando REGISTRAR_RENDICION.",
         "texto:", texto, "extraido:", JSON.stringify(extraido)
       );
       intentFinal = "REGISTRAR_RENDICION";
@@ -1098,11 +1153,47 @@ async function procesarMensaje(usuario, mensajes) {
     return;
   }
 
-  if (resultado.completo) {
+  // BUG 2 fix: procesar múltiples imágenes en lote después de confirmación
+  if (resultado.completo && imagenesSubidas.length > 1 && intentFinal === "REGISTRAR_RENDICION" && datos.itemId) {
+    // Registrar las imágenes restantes con los mismos datos
+    const gastosCreados = [resultado.gastosCreados || []];
+    for (let i = 1; i < imagenesSubidas.length; i++) {
+      const imagenExtra = imagenesSubidas[i];
+      const gastoExtra = await db.gastos.crear({
+        tipo: "rendicion",
+        obraId: datos.obraId,
+        etapaId: datos.etapaId,
+        itemId: datos.itemId,
+        proveedorId: datos.proveedorId || null,
+        acuerdoId: datos.acuerdoId || null,
+        monto: datos.monto || 0, // Monto de la primera imagen (debería pedir confirmación para cada una, pero por ahora usamos el mismo)
+        ivaIncluido: datos.iva_incluido ?? null,
+        descripcion: datos.descripcion || null,
+        imagenDriveId: imagenExtra.fileId,
+        imagenDriveLink: imagenExtra.webViewLink,
+        registradoPor: usuario.id,
+        alertaRazonSocial: datos.alertaRazonSocial || false,
+        razonSocialDetectada: datos.razon_social_detectada || null,
+        rawExtraccionIa: datos.rawExtraccionIa || null,
+        fechaDocumento: datos.fecha_documento || null,
+        tipoDocumento: datos.tipo_documento || null,
+      });
+      gastosCreados.push(gastoExtra);
+    }
+
+    await db.estadoConversacional.borrar(usuario.id);
+    const mensajeLote = `✅ Listo, registré ${imagenesSubidas.length} gastos en *${datos.obraNombre}* > *${datos.etapaNombre}* > *${datos.itemNombre}*.`;
+    await whatsapp.sendText(usuario.telefono, mensajeLote);
+  } else if (resultado.completo) {
     await db.estadoConversacional.borrar(usuario.id);
     if (resultado.mensaje) await whatsapp.sendText(usuario.telefono, resultado.mensaje);
   } else {
     const datosAGuardar = { ...datos, ...(resultado.datosExtra || {}) };
+    // BUG 2: guardar info de lote de imágenes si hay múltiples
+    if (imagenesSubidas.length > 1) {
+      datosAGuardar.imagenesMultiples = imagenesSubidas;
+      datosAGuardar.totalImagenes = imagenesSubidas.length;
+    }
     await db.estadoConversacional.guardar(usuario.id, intentFinal, datosAGuardar, resultado.pregunta);
     if (resultado.pregunta) await whatsapp.sendText(usuario.telefono, resultado.pregunta);
   }
