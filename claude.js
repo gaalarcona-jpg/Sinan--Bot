@@ -31,7 +31,7 @@ const TOOL = {
       item: { type: ["string", "null"], description: "Ítem presupuestario mencionado (ej: Fierros, Mano de obra)" },
       proveedor: { type: ["string", "null"], description: "Nombre del proveedor mencionado" },
       monto: { type: ["number", "null"], description: "Monto en pesos chilenos mencionado por el usuario en texto, sin signos" },
-      monto_imagen: { type: ["number", "null"], description: "Monto total leído directamente de la boleta/imagen adjunta, si hay imagen" },
+      monto_imagen: { type: ["number", "null"], description: "CRÍTICO: monto_imagen es SOLO el campo explícitamente etiquetado como 'Monto', 'Monto pagado', 'Total' o 'Subtotal' en el documento. NUNCA concatenar ni mezclar con números de factura, pedido, referencia, código de autorización u otros campos numéricos del documento. Si el documento dice 'Monto pagado: $954.261' el valor es 954261, no 5954261 ni ninguna otra variación. Leer con precisión y extraer SOLO el monto del campo de pago/total." },
       iva_incluido: { type: ["boolean", "null"], description: "Si la boleta indica IVA incluido. null si no se puede determinar" },
       razon_social_detectada: { type: ["string", "null"], description: "Razón social del receptor leída en la boleta, si hay imagen" },
       fecha_documento: { type: ["string", "null"], description: "Fecha del documento leída en la imagen, formato YYYY-MM-DD si se puede inferir, null si no hay imagen o no es legible" },

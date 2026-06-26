@@ -153,16 +153,25 @@ async function resolverEntidades(datos) {
 
   // BUG 1 fix: si hay opcionesPendientes y el usuario respondió texto libre
   // (campo lleno pero sin ID), hacer fuzzy match contra la lista antes de volver a preguntar.
+  // BUG 2 fix: si campo="item" y texto contiene patrón de split, NO hacer fuzzy match
+  // simple — dejarlo pasar para que handleRegistrarRendicion detecte el split.
   const opcPend = datos.opcionesPendientes;
   if (opcPend?.campo && opcPend?.lista) {
     const campo = opcPend.campo;
     const valorTexto = datos[campo];
     if (valorTexto && !out[`${campo}Id`]) {
-      const match = fuzzyMatchOpcion(valorTexto, opcPend.lista);
-      if (match) {
-        out[`${campo}Id`] = match.id;
-        out[`${campo}Nombre`] = match.nombre;
-        delete out.opcionesPendientes; // ya resuelto
+      // Si es campo "item", verificar primero si contiene patrón de split
+      if (campo === "item" && parseSplitItems(valorTexto)) {
+        // Hay split detectado → NO hacer fuzzy match, dejar que handleRegistrarRendicion lo procese
+        // No borrar opcionesPendientes, se limpiará después de resolver el split
+      } else {
+        // No hay split (o no es campo item) → intentar fuzzy match simple
+        const match = fuzzyMatchOpcion(valorTexto, opcPend.lista);
+        if (match) {
+          out[`${campo}Id`] = match.id;
+          out[`${campo}Nombre`] = match.nombre;
+          delete out.opcionesPendientes; // ya resuelto
+        }
       }
     }
   }
