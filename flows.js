@@ -136,8 +136,37 @@ function nombreArchivoFinal(datos, monto, usuario) {
   return `${fecha}_${slug(datos.obraNombre)}_${slug(datos.proveedorNombre)}_${Math.round(monto)}_${usuario.telefono}.jpg`;
 }
 
+// Fuzzy match simple: normaliza y busca si el texto está contenido en alguna opción
+function fuzzyMatchOpcion(texto, opciones) {
+  const normalizar = (s) => slug(s).replace(/-/g, "");
+  const textoNorm = normalizar(texto);
+  for (const opc of opciones) {
+    if (normalizar(opc.nombre).includes(textoNorm) || textoNorm.includes(normalizar(opc.nombre))) {
+      return opc;
+    }
+  }
+  return null;
+}
+
 async function resolverEntidades(datos) {
   const out = { ...datos };
+
+  // BUG 1 fix: si hay opcionesPendientes y el usuario respondió texto libre
+  // (campo lleno pero sin ID), hacer fuzzy match contra la lista antes de volver a preguntar.
+  const opcPend = datos.opcionesPendientes;
+  if (opcPend?.campo && opcPend?.lista) {
+    const campo = opcPend.campo;
+    const valorTexto = datos[campo];
+    if (valorTexto && !out[`${campo}Id`]) {
+      const match = fuzzyMatchOpcion(valorTexto, opcPend.lista);
+      if (match) {
+        out[`${campo}Id`] = match.id;
+        out[`${campo}Nombre`] = match.nombre;
+        delete out.opcionesPendientes; // ya resuelto
+      }
+    }
+  }
+
   if (datos.obra && !out.obraId) {
     const candidatos = await db.obras.buscarCandidatos(datos.obra);
     if (candidatos.length === 1) {
@@ -166,6 +195,42 @@ async function resolverEntidades(datos) {
   return out;
 }
 
+// BUG 2 fix: detectar split de gasto entre 2 ítems
+// Patrones: "50% cimiento y 50% sobre cimiento", "cimiento y sobre cimiento", "30% X, 70% Y"
+function parseSplitItems(textoItem) {
+  if (!textoItem || typeof textoItem !== "string") return null;
+
+  // Buscar patron: "X% ... y Y% ..." o "X% ..., Y% ..."
+  const matchPorcentajes = textoItem.match(/(\d+)\s*%\s*([^,y]+?)(?:\s+y\s+|\s*,\s*)(\d+)\s*%\s*(.+)/i);
+  if (matchPorcentajes) {
+    const [, pct1, item1, pct2, item2] = matchPorcentajes;
+    return {
+      items: [
+        { nombre: item1.trim(), porcentaje: parseInt(pct1, 10) },
+        { nombre: item2.trim(), porcentaje: parseInt(pct2, 10) },
+      ],
+    };
+  }
+
+  // Buscar patron: "... y ..." (sin porcentajes explícitos → 50/50)
+  const matchSimple = textoItem.match(/^(.+?)\s+y\s+(.+)$/i);
+  if (matchSimple) {
+    const [, item1, item2] = matchSimple;
+    // Filtrar falsos positivos como "cimientos y sobre cimiento" siendo UN solo item
+    // Solo dividir si ambas partes tienen al menos 3 caracteres
+    if (item1.trim().length >= 3 && item2.trim().length >= 3) {
+      return {
+        items: [
+          { nombre: item1.trim(), porcentaje: 50 },
+          { nombre: item2.trim(), porcentaje: 50 },
+        ],
+      };
+    }
+  }
+
+  return null;
+}
+
 async function descargarYSubirMedia(media, usuario) {
   if (!media) return null;
   const { buffer, mimeType } = await whatsapp.downloadMedia(media.id);
@@ -187,7 +252,29 @@ async function handleRegistrarRendicion(usuario, datos) {
     const r = await preguntaEtapa(datos);
     return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
   }
-  if (!datos.itemId) {
+
+  // BUG 2: detectar split de gasto entre 2 ítems antes de validar itemId único
+  if (!datos.itemId && datos.item) {
+    const split = parseSplitItems(datos.item);
+    if (split && datos.etapaId) {
+      // Intentar resolver ambos ítems contra la etapa
+      const items = await db.itemsPresupuesto.listarPorEtapa(datos.etapaId);
+      const resueltos = [];
+      for (const s of split.items) {
+        const match = fuzzyMatchOpcion(s.nombre, items.map((it) => ({ id: it.id, nombre: it.nombre })));
+        if (match) resueltos.push({ ...match, porcentaje: s.porcentaje });
+      }
+
+      if (resueltos.length === 2) {
+        // Ambos ítems resueltos → guardar en datos.splitItems y pedir confirmación
+        datos.splitItems = resueltos;
+        delete datos.item; // limpiar el texto original
+        // No asignar itemId único, el flujo lo manejará abajo
+      }
+    }
+  }
+
+  if (!datos.itemId && !datos.splitItems) {
     const r = await preguntaItem(datos);
     return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
   }
@@ -212,6 +299,20 @@ async function handleRegistrarRendicion(usuario, datos) {
     return { completo: false, pregunta: "No pude leer el monto de la boleta y no lo escribiste — ¿cuál es el monto total?" };
   }
 
+  // BUG 2: confirmación especial para split de items
+  if (datos.splitItems && !datos.confirmacionPendiente) {
+    const splits = datos.splitItems.map((s) => {
+      const montoItem = Math.round((monto * s.porcentaje) / 100);
+      return `  • ${fmtMonto(montoItem)} (${s.porcentaje}%) en *${s.nombre}*`;
+    }).join("\n");
+    const preguntaSplit = `💰 Voy a dividir el gasto total de ${fmtMonto(monto)} entre 2 ítems:\n${splits}\n\n¿Confirmas? (sí/no)`;
+    return {
+      completo: false,
+      pregunta: preguntaSplit,
+      datosExtra: { confirmacionPendiente: true },
+    };
+  }
+
   if (!datos.confirmacionPendiente) {
     return {
       completo: false,
@@ -227,11 +328,49 @@ async function handleRegistrarRendicion(usuario, datos) {
     };
   }
   if (datos.confirma !== true) {
-    return { completo: false, pregunta: construirResumenConfirmacion(datos, monto), datosExtra: { confirmacionPendiente: true } };
+    const pregunta = datos.splitItems
+      ? `💰 Voy a dividir el gasto total de ${fmtMonto(monto)} entre 2 ítems:\n${datos.splitItems.map((s) => `  • ${fmtMonto(Math.round((monto * s.porcentaje) / 100))} (${s.porcentaje}%) en *${s.nombre}*`).join("\n")}\n\n¿Confirmas? (sí/no)`
+      : construirResumenConfirmacion(datos, monto);
+    return { completo: false, pregunta, datosExtra: { confirmacionPendiente: true } };
   }
 
   const alertaRazonSocial = !!(datos.razon_social_detectada && !contieneRazonSocialValida(datos.razon_social_detectada));
 
+  // BUG 2: si hay splitItems, crear DOS gastos
+  if (datos.splitItems) {
+    const gastosCreados = [];
+    for (const s of datos.splitItems) {
+      const montoItem = Math.round((monto * s.porcentaje) / 100);
+      const gasto = await db.gastos.crear({
+        tipo: "rendicion",
+        obraId: datos.obraId,
+        etapaId: datos.etapaId,
+        itemId: s.id,
+        proveedorId: datos.proveedorId || null,
+        acuerdoId: datos.acuerdoId || null,
+        monto: montoItem,
+        ivaIncluido: datos.iva_incluido ?? null,
+        descripcion: `Split ${s.porcentaje}%: ${datos.descripcion || ""}`.trim(),
+        imagenDriveId: datos.imagenDriveId || null,
+        imagenDriveLink: datos.imagenDriveLink || null,
+        registradoPor: usuario.id,
+        alertaRazonSocial,
+        razonSocialDetectada: datos.razon_social_detectada || null,
+        rawExtraccionIa: datos.rawExtraccionIa || null,
+        fechaDocumento: datos.fecha_documento || null,
+        tipoDocumento: datos.tipo_documento || null,
+      });
+      gastosCreados.push({ id: gasto.id, nombre: s.nombre, monto: montoItem });
+    }
+
+    let mensaje = `✅ Listo, registré 2 gastos:\n${gastosCreados.map((g) => `  • #${g.id} — ${fmtMonto(g.monto)} en ${g.nombre}`).join("\n")}\n\nQuedan pendientes de pago — se revisan en el corte semanal con Finanzas.`;
+    if (alertaRazonSocial) {
+      mensaje += `\n\n⚠️ La boleta no menciona a Sinan/Constructora Sinan — quedaron marcadas para revisión de Finanzas.`;
+    }
+    return { completo: true, mensaje };
+  }
+
+  // Flujo normal: un solo ítem
   const gasto = await db.gastos.crear({
     tipo: "rendicion",
     obraId: datos.obraId,
