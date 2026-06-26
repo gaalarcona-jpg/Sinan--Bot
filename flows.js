@@ -136,15 +136,33 @@ function nombreArchivoFinal(datos, monto, usuario) {
   return `${fecha}_${slug(datos.obraNombre)}_${slug(datos.proveedorNombre)}_${Math.round(monto)}_${usuario.telefono}.jpg`;
 }
 
-// Fuzzy match simple: normaliza y busca si el texto está contenido en alguna opción
+// Fuzzy match con prioridad: exacto > empieza con > contiene
 function fuzzyMatchOpcion(texto, opciones) {
   const normalizar = (s) => slug(s).replace(/-/g, "");
   const textoNorm = normalizar(texto);
+
+  // Prioridad 1: match exacto
+  for (const opc of opciones) {
+    if (normalizar(opc.nombre) === textoNorm) return opc;
+  }
+
+  // Prioridad 2: la opción empieza con el texto del usuario
+  for (const opc of opciones) {
+    if (normalizar(opc.nombre).startsWith(textoNorm)) return opc;
+  }
+
+  // Prioridad 3: el texto del usuario empieza con la opción
+  for (const opc of opciones) {
+    if (textoNorm.startsWith(normalizar(opc.nombre))) return opc;
+  }
+
+  // Prioridad 4: contención parcial (fallback)
   for (const opc of opciones) {
     if (normalizar(opc.nombre).includes(textoNorm) || textoNorm.includes(normalizar(opc.nombre))) {
       return opc;
     }
   }
+
   return null;
 }
 
@@ -190,9 +208,41 @@ async function resolverEntidades(datos) {
     const etapa = await db.etapas.porObraYNombreAprox(out.obraId, nombreEtapa);
     if (etapa) { out.etapaId = etapa.id; out.etapaNombre = etapa.nombre; }
   }
+
+  // FIX CRÍTICO: detectar split ANTES de resolver itemId automáticamente
   if (datos.item && out.etapaId && !out.itemId) {
-    const item = await db.itemsPresupuesto.porEtapaYNombreAprox(out.etapaId, datos.item);
-    if (item) { out.itemId = item.id; out.itemNombre = item.nombre; }
+    const splitDetectado = parseSplitItems(datos.item);
+
+    if (splitDetectado) {
+      // El texto contiene patrón de split ("X y Y" o "N% X y M% Y")
+      // Intentar resolver ambas partes contra los ítems de la etapa
+      const todosItems = await db.itemsPresupuesto.listarPorEtapa(out.etapaId);
+      const resueltos = [];
+
+      for (const s of splitDetectado.items) {
+        const match = fuzzyMatchOpcion(s.nombre, todosItems.map((it) => ({ id: it.id, nombre: it.nombre })));
+        if (match) {
+          resueltos.push({ id: match.id, nombre: match.nombre, porcentaje: s.porcentaje });
+        }
+      }
+
+      if (resueltos.length === 2) {
+        // Ambos ítems matcheados → configurar split en vez de resolver un solo itemId
+        out.splitItems = resueltos;
+        delete out.item; // limpiar texto original
+        // NO asignar itemId — el handler mostrará confirmación de split
+      } else {
+        // Split detectado en el patrón pero no se pudieron resolver ambos ítems
+        // Dejar item sin resolver para que el bot pregunte con lista
+      }
+    } else {
+      // No hay patrón de split → fuzzy match normal de un solo ítem
+      const item = await db.itemsPresupuesto.porEtapaYNombreAprox(out.etapaId, datos.item);
+      if (item) {
+        out.itemId = item.id;
+        out.itemNombre = item.nombre;
+      }
+    }
   }
   if (datos.proveedor && !out.proveedorId) {
     const prov = await db.proveedores.obtenerOCrear(datos.proveedor);
@@ -262,27 +312,7 @@ async function handleRegistrarRendicion(usuario, datos) {
     return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
   }
 
-  // BUG 2: detectar split de gasto entre 2 ítems antes de validar itemId único
-  if (!datos.itemId && datos.item) {
-    const split = parseSplitItems(datos.item);
-    if (split && datos.etapaId) {
-      // Intentar resolver ambos ítems contra la etapa
-      const items = await db.itemsPresupuesto.listarPorEtapa(datos.etapaId);
-      const resueltos = [];
-      for (const s of split.items) {
-        const match = fuzzyMatchOpcion(s.nombre, items.map((it) => ({ id: it.id, nombre: it.nombre })));
-        if (match) resueltos.push({ ...match, porcentaje: s.porcentaje });
-      }
-
-      if (resueltos.length === 2) {
-        // Ambos ítems resueltos → guardar en datos.splitItems y pedir confirmación
-        datos.splitItems = resueltos;
-        delete datos.item; // limpiar el texto original
-        // No asignar itemId único, el flujo lo manejará abajo
-      }
-    }
-  }
-
+  // Split ya se detecta en resolverEntidades() — aquí solo validamos que haya itemId O splitItems
   if (!datos.itemId && !datos.splitItems) {
     const r = await preguntaItem(datos);
     return { completo: false, pregunta: r.pregunta, datosExtra: r.datosExtra };
@@ -329,6 +359,42 @@ async function handleRegistrarRendicion(usuario, datos) {
       datosExtra: { confirmacionPendiente: true },
     };
   }
+
+  // FIX: detectar split en fase de confirmación
+  // Si usuario responde a confirmación con patrón "X y Y" o "50% X y 50% Y", reiniciar con split
+  if (datos.confirmacionPendiente && !datos.confirma && datos.item && !datos.splitItems) {
+    const splitEnRespuesta = parseSplitItems(datos.item);
+    if (splitEnRespuesta && datos.etapaId) {
+      const todosItems = await db.itemsPresupuesto.listarPorEtapa(datos.etapaId);
+      const resueltos = [];
+      for (const s of splitEnRespuesta.items) {
+        const match = fuzzyMatchOpcion(s.nombre, todosItems.map((it) => ({ id: it.id, nombre: it.nombre })));
+        if (match) {
+          resueltos.push({ id: match.id, nombre: match.nombre, porcentaje: s.porcentaje });
+        }
+      }
+      if (resueltos.length === 2) {
+        // Reiniciar flujo con split detectado
+        delete datos.itemId;
+        delete datos.itemNombre;
+        delete datos.confirmacionPendiente;
+        delete datos.confirma;
+        datos.splitItems = resueltos;
+        delete datos.item;
+        // Volver a mostrar confirmación de split
+        const splits = resueltos.map((s) => {
+          const montoItem = Math.round((monto * s.porcentaje) / 100);
+          return `  • ${fmtMonto(montoItem)} (${s.porcentaje}%) en *${s.nombre}*`;
+        }).join("\n");
+        return {
+          completo: false,
+          pregunta: `💰 Voy a dividir el gasto total de ${fmtMonto(monto)} entre 2 ítems:\n${splits}\n\n¿Confirmas? (sí/no)`,
+          datosExtra: { confirmacionPendiente: true },
+        };
+      }
+    }
+  }
+
   if (datos.confirma === false) {
     return {
       completo: false,
