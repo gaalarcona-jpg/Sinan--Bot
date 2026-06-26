@@ -12,6 +12,9 @@ const INTENTS = [
   "ESTADO_ETAPA",
   "EXPORTAR_REPORTE",
   "CONSULTAR_RESUMEN",
+  "REGISTRAR_GASTO_OPERACIONAL",
+  "REGISTRAR_INGRESO",
+  "CONSULTAR_ESTADO_RESULTADOS",
   "PEDIR_AYUDA",
   "RESPONDER_PREGUNTA_PENDIENTE",
   "DESCONOCIDO",
@@ -43,6 +46,10 @@ const TOOL = {
       tipo_pago: { type: ["string", "null"], enum: ["proveedor", "reembolso_rodrigo", null], description: "Si Gary indica si el pago fue directo al proveedor o reembolso a Rodrigo" },
       numero_etapa: { type: ["string", "null"], description: "Número/nombre de etapa mencionado para consultar su estado de avance (intent ESTADO_ETAPA)" },
       confirma: { type: ["boolean", "null"], description: "Si el mensaje es una respuesta afirmativa/negativa a una pregunta de confirmación pendiente" },
+      area_negocio: { type: ["string", "null"], enum: ["Construcción", "Arquitectura", "Operacional", null], description: "Área de negocio mencionada. Construcción si menciona obra/etapa, Arquitectura si menciona diseño/planos, Operacional para gastos generales sin obra" },
+      categoria_gasto: { type: ["string", "null"], enum: ["sueldo", "arriendo", "marketing", "software", "otro", null], description: "Categoría de gasto operacional: sueldo (sueldos/salarios), arriendo (arriendos/oficina), marketing (publicidad/marketing), software (SaaS/licencias), otro" },
+      cliente_nombre: { type: ["string", "null"], description: "Nombre del cliente que pagó/cobró, para ingresos" },
+      periodo_mes: { type: ["string", "null"], description: "Mes del período en formato YYYY-MM si menciona 'junio', 'este mes', mes específico" },
     },
     required: ["intent"],
   },
@@ -55,11 +62,15 @@ function systemPrompt({ rol, catalogos, estadoPendiente, hayImagen }) {
     "Tu única tarea es llamar a la herramienta clasificar_mensaje_sinan con la intención y las entidades que puedas extraer del texto y/o la imagen adjunta.",
     "No generes texto de respuesta para el usuario final — eso lo decide otro componente del sistema.",
     hayImagen && !estadoPendiente
-      ? "El mensaje trae una imagen adjunta (boleta/factura/comprobante). REGLA ABSOLUTA: si hay imagen, el intent es SIEMPRE REGISTRAR_RENDICION, sin excepción. Nunca uses REGISTRAR_PAGO cuando hay imagen. Nunca uses DESCONOCIDO cuando hay imagen. Intenta leer monto, proveedor, fecha y tipo de documento de la imagen. Si la imagen está borrosa o no se puede leer el monto, de todas formas usa REGISTRAR_RENDICION con legible_imagen=false y monto_imagen=null — el sistema le preguntará el monto al usuario. REGISTRAR_PAGO solo existe para mensajes de texto sin imagen que pidan explícitamente marcar como pagada una rendición ya existente (ej: 'marcar pagado rendicion 42', 'pago la 42' con ID explícito)."
+      ? "El mensaje trae una imagen adjunta (boleta/factura/comprobante). REGLA: si hay imagen Y menciona obra/etapa/ítem O no menciona categoría operacional (sueldo/arriendo/marketing/software), usa REGISTRAR_RENDICION. Si hay imagen Y menciona sueldo/arriendo/marketing/software SIN obra, usa REGISTRAR_GASTO_OPERACIONAL. Nunca uses REGISTRAR_PAGO cuando hay imagen. Nunca uses DESCONOCIDO cuando hay imagen. Intenta leer monto, proveedor, fecha y tipo de documento de la imagen. Si la imagen está borrosa o no se puede leer el monto, de todas formas clasifica el intent correcto con legible_imagen=false y monto_imagen=null."
       : "",
     hayImagen
       ? "Para la imagen adjunta: extrae monto_imagen, proveedor (nombre/razón social del documento), fecha_documento (YYYY-MM-DD si es legible), tipo_documento (boleta/factura/comprobante_transferencia/otro) y legible_imagen (true/false según puedas leer el contenido con confianza)."
       : "",
+    "NUEVOS INTENTS DE GASTOS OPERACIONALES E INGRESOS:",
+    "• REGISTRAR_GASTO_OPERACIONAL: cuando menciona 'pagué sueldo/arriendo/marketing/software/oficina' SIN mencionar obra/etapa. Extrae categoria_gasto, monto, proveedor, periodo_mes si dice 'junio' o 'este mes'. Si menciona área (Construcción/Arquitectura/Operacional) extrae area_negocio.",
+    "• REGISTRAR_INGRESO: cuando dice 'cobré/recibí pago de [cliente]' o 'me pagó [cliente]'. Extrae cliente_nombre, monto, obra si la menciona, area_negocio (Construcción si obra, Arquitectura si diseño/planos, Operacional si general).",
+    "• CONSULTAR_ESTADO_RESULTADOS: cuando pide 'estado de resultados', 'ER', 'resultado del mes', 'cómo quedó el mes', 'balance'. Extrae periodo_mes si especifica mes.",
     "Si el mensaje es un saludo simple (hola, buenas, buenos días, etc.) sin más contenido y no hay conversación pendiente, usa intent PEDIR_AYUDA.",
     "Si el mensaje es corto y parece responder una pregunta que el bot hizo previamente (ej: solo dice un nombre de etapa, 'sí', 'no', un monto), usa intent RESPONDER_PREGUNTA_PENDIENTE y llena las entidades que correspondan a esa respuesta.",
     "Si el usuario pregunta por el avance/estado de una etapa específica (ej: 'cómo va la etapa 2 de Codegua'), usa intent ESTADO_ETAPA con obra y numero_etapa.",

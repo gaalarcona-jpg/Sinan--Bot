@@ -656,6 +656,233 @@ function handleDesconocido() {
   return { completo: true, mensaje: "No entendí muy bien 🤔 — escribe *ayuda* para ver en qué te puedo ayudar." };
 }
 
+// ============================================================
+// HANDLERS GASTOS OPERACIONALES E INGRESOS
+// ============================================================
+
+async function handleRegistrarGastoOperacional(usuario, datos) {
+  if (!esAdmin(usuario)) {
+    return { completo: true, mensaje: "Solo Gary puede registrar gastos operacionales." };
+  }
+
+  // Resolver área
+  if (!datos.areaId && datos.area_negocio) {
+    const areaNombre = datos.area_negocio;
+    const { rows } = await db.query("SELECT id FROM areas_negocio WHERE nombre = $1", [areaNombre]);
+    if (rows[0]) {
+      datos.areaId = rows[0].id;
+      datos.areaNombre = areaNombre;
+    }
+  }
+
+  if (!datos.areaId) {
+    return {
+      completo: false,
+      pregunta: "¿A qué área corresponde este gasto?\n1️⃣ Construcción\n2️⃣ Arquitectura\n3️⃣ Operacional",
+    };
+  }
+
+  // Resolver categoría
+  const categorias = ["sueldo", "arriendo", "marketing", "software", "otro"];
+  if (!datos.categoria && datos.categoria_gasto && categorias.includes(datos.categoria_gasto)) {
+    datos.categoria = datos.categoria_gasto;
+  }
+
+  if (!datos.categoria) {
+    return {
+      completo: false,
+      pregunta: "¿Qué tipo de gasto es?\n1️⃣ Sueldo\n2️⃣ Arriendo\n3️⃣ Marketing\n4️⃣ Software\n5️⃣ Otro",
+    };
+  }
+
+  const monto = datos.monto ?? datos.monto_imagen;
+  if (monto == null) {
+    return { completo: false, pregunta: "¿Cuál es el monto del gasto?" };
+  }
+
+  // Inferir período si no está claro
+  if (!datos.periodoMes && datos.periodo_mes) {
+    datos.periodoMes = datos.periodo_mes;
+  }
+  if (!datos.periodoMes) {
+    // Default: mes actual
+    datos.periodoMes = new Date().toISOString().slice(0, 7);
+  }
+
+  if (!datos.confirmacionPendiente) {
+    const resumen = [
+      `- Área: ${datos.areaNombre || "Operacional"}`,
+      `- Categoría: ${datos.categoria}`,
+      `- Monto: ${fmtMonto(monto)}`,
+      `- Descripción: ${datos.descripcion || "—"}`,
+      `- Período: ${datos.periodoMes}`,
+    ].join("\n");
+    return {
+      completo: false,
+      pregunta: `💼 Voy a registrar gasto operacional:\n${resumen}\n¿Confirmas? (sí/no)`,
+      datosExtra: { confirmacionPendiente: true },
+    };
+  }
+
+  if (datos.confirma !== true) {
+    return {
+      completo: false,
+      pregunta: `💼 Voy a registrar gasto operacional:\n- Categoría: ${datos.categoria}\n- Monto: ${fmtMonto(monto)}\n¿Confirmas? (sí/no)`,
+      datosExtra: { confirmacionPendiente: true },
+    };
+  }
+
+  const gasto = await db.gastosOperacionales.crear({
+    areaId: datos.areaId,
+    categoria: datos.categoria,
+    descripcion: datos.descripcion || null,
+    monto,
+    fecha: datos.fecha_documento || new Date().toISOString().slice(0, 10),
+    proveedorId: datos.proveedorId || null,
+    imagenDriveId: datos.imagenDriveId || null,
+    imagenDriveLink: datos.imagenDriveLink || null,
+    tipoDocumento: datos.tipo_documento || null,
+    registradoPor: usuario.id,
+    periodoMes: datos.periodoMes,
+  });
+
+  return {
+    completo: true,
+    mensaje: `✅ Gasto operacional #${gasto.id} registrado: ${datos.categoria} por ${fmtMonto(monto)} (${datos.periodoMes}).`,
+  };
+}
+
+async function handleRegistrarIngreso(usuario, datos) {
+  if (!esAdmin(usuario)) {
+    return { completo: true, mensaje: "Solo Gary puede registrar ingresos." };
+  }
+
+  // Resolver área
+  if (!datos.areaId && datos.area_negocio) {
+    const areaNombre = datos.area_negocio;
+    const { rows } = await db.query("SELECT id FROM areas_negocio WHERE nombre = $1", [areaNombre]);
+    if (rows[0]) {
+      datos.areaId = rows[0].id;
+      datos.areaNombre = areaNombre;
+    }
+  }
+
+  // Si menciona obra, área = Construcción
+  if (datos.obraId && !datos.areaId) {
+    const { rows } = await db.query("SELECT id FROM areas_negocio WHERE nombre = 'Construcción'");
+    if (rows[0]) {
+      datos.areaId = rows[0].id;
+      datos.areaNombre = "Construcción";
+    }
+  }
+
+  if (!datos.areaId) {
+    return {
+      completo: false,
+      pregunta: "¿A qué área corresponde este ingreso?\n1️⃣ Construcción\n2️⃣ Arquitectura\n3️⃣ Operacional",
+    };
+  }
+
+  if (!datos.clienteNombre && !datos.cliente_nombre) {
+    return { completo: false, pregunta: "¿Cuál es el nombre del cliente que pagó?" };
+  }
+
+  const clienteNombre = datos.clienteNombre || datos.cliente_nombre;
+  const monto = datos.monto ?? datos.monto_imagen;
+
+  if (monto == null) {
+    return { completo: false, pregunta: "¿Cuál es el monto del ingreso?" };
+  }
+
+  if (!datos.confirmacionPendiente) {
+    const resumen = [
+      `- Área: ${datos.areaNombre}`,
+      datos.obraNombre ? `- Obra: ${datos.obraNombre}` : "",
+      datos.etapaNombre ? `- Etapa: ${datos.etapaNombre}` : "",
+      `- Cliente: ${clienteNombre}`,
+      `- Monto: ${fmtMonto(monto)}`,
+      `- Descripción: ${datos.descripcion || "—"}`,
+    ].filter(Boolean).join("\n");
+    return {
+      completo: false,
+      pregunta: `💰 Voy a registrar ingreso:\n${resumen}\n¿Confirmas? (sí/no)`,
+      datosExtra: { confirmacionPendiente: true },
+    };
+  }
+
+  if (datos.confirma !== true) {
+    return {
+      completo: false,
+      pregunta: `💰 Voy a registrar ingreso de ${clienteNombre} por ${fmtMonto(monto)}. ¿Confirmas? (sí/no)`,
+      datosExtra: { confirmacionPendiente: true },
+    };
+  }
+
+  const ingreso = await db.ingresos.crear({
+    areaId: datos.areaId,
+    obraId: datos.obraId || null,
+    etapaId: datos.etapaId || null,
+    clienteNombre,
+    descripcion: datos.descripcion || null,
+    monto,
+    fechaCobro: datos.fecha_documento || new Date().toISOString().slice(0, 10),
+    comprobanteDriveId: datos.comprobanteDriveId || null,
+    comprobanteDriveLink: datos.comprobanteDriveLink || null,
+    registradoPor: usuario.id,
+  });
+
+  return {
+    completo: true,
+    mensaje: `✅ Ingreso #${ingreso.id} registrado: ${clienteNombre} pagó ${fmtMonto(monto)} (${datos.areaNombre}).`,
+  };
+}
+
+async function handleConsultarEstadoResultados(usuario, datos) {
+  if (!esAdmin(usuario)) {
+    return { completo: true, mensaje: "Solo Gary puede consultar el estado de resultados." };
+  }
+
+  // Determinar período (default: mes actual)
+  let mes = datos.periodo_mes || new Date().toISOString().slice(0, 7);
+
+  const resultado = await db.estadoResultados.porMes(mes);
+  const { areas, ingresos, gastosOperacionales, gastosRendiciones } = resultado;
+
+  // Construir respuesta por área
+  let mensaje = `📊 *Estado de Resultados ${mes}*\n\n`;
+
+  for (const area of areas) {
+    const ingresosArea = ingresos.find((i) => i.area_id === area.id)?.total || 0;
+    const gastosOpArea = gastosOperacionales.filter((g) => g.area_id === area.id);
+    const totalGastosOp = gastosOpArea.reduce((sum, g) => sum + parseFloat(g.total), 0);
+
+    // Gastos de construcción (rendiciones)
+    let totalRendiciones = 0;
+    if (area.nombre === "Construcción") {
+      totalRendiciones = gastosRendiciones.reduce((sum, g) => sum + parseFloat(g.total || 0), 0);
+    }
+
+    const totalGastos = totalGastosOp + totalRendiciones;
+    const resultado = ingresosArea - totalGastos;
+    const margen = ingresosArea > 0 ? ((resultado / ingresosArea) * 100).toFixed(1) : 0;
+
+    mensaje += `🏢 *${area.nombre}*\n`;
+    mensaje += `  Ingresos: ${fmtMonto(ingresosArea)}\n`;
+    if (totalGastosOp > 0) mensaje += `  Gastos operacionales: ${fmtMonto(totalGastosOp)}\n`;
+    if (totalRendiciones > 0) mensaje += `  Gastos obras: ${fmtMonto(totalRendiciones)}\n`;
+    mensaje += `  Resultado: ${fmtMonto(resultado)} (${margen}%)\n\n`;
+  }
+
+  const totalIngresos = ingresos.reduce((sum, i) => sum + parseFloat(i.total), 0);
+  const totalGastosOp = gastosOperacionales.reduce((sum, g) => sum + parseFloat(g.total), 0);
+  const totalRendiciones = gastosRendiciones.reduce((sum, g) => sum + parseFloat(g.total || 0), 0);
+  const resultadoNeto = totalIngresos - totalGastosOp - totalRendiciones;
+
+  mensaje += `💼 *RESULTADO NETO: ${fmtMonto(resultadoNeto)}*`;
+
+  return { completo: true, mensaje };
+}
+
 const HANDLERS = {
   REGISTRAR_RENDICION: handleRegistrarRendicion,
   REGISTRAR_ACUERDO: handleRegistrarAcuerdo,
@@ -665,6 +892,9 @@ const HANDLERS = {
   ESTADO_ETAPA: handleEstadoEtapa,
   EXPORTAR_REPORTE: handleExportarReporte,
   CONSULTAR_RESUMEN: handleConsultarResumen,
+  REGISTRAR_GASTO_OPERACIONAL: handleRegistrarGastoOperacional,
+  REGISTRAR_INGRESO: handleRegistrarIngreso,
+  CONSULTAR_ESTADO_RESULTADOS: handleConsultarEstadoResultados,
   PEDIR_AYUDA: (usuario) => handleAyuda(usuario),
   DESCONOCIDO: () => handleDesconocido(),
 };

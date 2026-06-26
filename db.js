@@ -370,6 +370,179 @@ const backupsLog = {
   },
 };
 
+// ============================================================
+// GASTOS OPERACIONALES
+// ============================================================
+const gastosOperacionales = {
+  async crear(datos) {
+    const {
+      areaId, categoria, descripcion, monto, fecha, proveedorId,
+      imagenDriveId, imagenDriveLink, tipoDocumento, registradoPor, periodoMes,
+    } = datos;
+    const { rows } = await query(
+      `INSERT INTO gastos_operacionales (
+         area_id, categoria, descripcion, monto, fecha, proveedor_id,
+         imagen_drive_id, imagen_drive_link, tipo_documento, registrado_por, periodo_mes
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING *`,
+      [areaId, categoria, descripcion || null, monto, fecha, proveedorId || null,
+       imagenDriveId || null, imagenDriveLink || null, tipoDocumento || null,
+       registradoPor, periodoMes || null]
+    );
+    return rows[0];
+  },
+  async listarPorMes(mes) {
+    const { rows } = await query(
+      `SELECT go.*, an.nombre AS area_nombre, p.nombre AS proveedor_nombre
+       FROM gastos_operacionales go
+       LEFT JOIN areas_negocio an ON an.id = go.area_id
+       LEFT JOIN proveedores p ON p.id = go.proveedor_id
+       WHERE periodo_mes = $1 OR TO_CHAR(fecha, 'YYYY-MM') = $1
+       ORDER BY fecha DESC`,
+      [mes]
+    );
+    return rows;
+  },
+  async listarPorArea(areaId) {
+    const { rows } = await query(
+      `SELECT go.*, p.nombre AS proveedor_nombre
+       FROM gastos_operacionales go
+       LEFT JOIN proveedores p ON p.id = go.proveedor_id
+       WHERE area_id = $1
+       ORDER BY fecha DESC`,
+      [areaId]
+    );
+    return rows;
+  },
+};
+
+// ============================================================
+// INGRESOS
+// ============================================================
+const ingresos = {
+  async crear(datos) {
+    const {
+      areaId, obraId, etapaId, clienteNombre, descripcion, monto, fechaCobro,
+      comprobanteDriveId, comprobanteDriveLink, registradoPor,
+    } = datos;
+    const { rows } = await query(
+      `INSERT INTO ingresos (
+         area_id, obra_id, etapa_id, cliente_nombre, descripcion, monto, fecha_cobro,
+         comprobante_drive_id, comprobante_drive_link, registrado_por
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       RETURNING *`,
+      [areaId, obraId || null, etapaId || null, clienteNombre, descripcion || null,
+       monto, fechaCobro, comprobanteDriveId || null, comprobanteDriveLink || null, registradoPor]
+    );
+    return rows[0];
+  },
+  async listarPorMes(mes) {
+    const { rows } = await query(
+      `SELECT i.*, an.nombre AS area_nombre, o.nombre AS obra_nombre, e.nombre AS etapa_nombre
+       FROM ingresos i
+       LEFT JOIN areas_negocio an ON an.id = i.area_id
+       LEFT JOIN obras o ON o.id = i.obra_id
+       LEFT JOIN etapas e ON e.id = i.etapa_id
+       WHERE TO_CHAR(fecha_cobro, 'YYYY-MM') = $1
+       ORDER BY fecha_cobro DESC`,
+      [mes]
+    );
+    return rows;
+  },
+  async listarPorObra(obraId) {
+    const { rows } = await query(
+      `SELECT i.*, e.nombre AS etapa_nombre
+       FROM ingresos i
+       LEFT JOIN etapas e ON e.id = i.etapa_id
+       WHERE obra_id = $1
+       ORDER BY fecha_cobro DESC`,
+      [obraId]
+    );
+    return rows;
+  },
+};
+
+// ============================================================
+// ESTADO DE RESULTADOS
+// ============================================================
+const estadoResultados = {
+  async porMes(mes) {
+    // Ingresos por área
+    const ingresosRes = await query(
+      `SELECT area_id, SUM(monto) AS total
+       FROM ingresos
+       WHERE TO_CHAR(fecha_cobro, 'YYYY-MM') = $1
+       GROUP BY area_id`,
+      [mes]
+    );
+
+    // Gastos operacionales por área
+    const gastosOpRes = await query(
+      `SELECT area_id, categoria, SUM(monto) AS total
+       FROM gastos_operacionales
+       WHERE periodo_mes = $1 OR TO_CHAR(fecha, 'YYYY-MM') = $1
+       GROUP BY area_id, categoria`,
+      [mes]
+    );
+
+    // Gastos de construcción (rendiciones) por obra
+    const gastosConst = await query(
+      `SELECT g.obra_id, o.nombre AS obra_nombre, SUM(g.monto) AS total
+       FROM gastos g
+       LEFT JOIN obras o ON o.id = g.obra_id
+       WHERE TO_CHAR(g.creado_en, 'YYYY-MM') = $1 AND g.tipo = 'rendicion'
+       GROUP BY g.obra_id, o.nombre`,
+      [mes]
+    );
+
+    // Áreas
+    const { rows: areas } = await query("SELECT * FROM areas_negocio ORDER BY id");
+
+    return { areas, ingresos: ingresosRes.rows, gastosOperacionales: gastosOpRes.rows, gastosRendiciones: gastosConst.rows };
+  },
+
+  async porObra(obraId) {
+    // Ingresos de la obra
+    const { rows: ingresosObra } = await query(
+      `SELECT SUM(monto) AS total FROM ingresos WHERE obra_id = $1`,
+      [obraId]
+    );
+
+    // Gastos (rendiciones) de la obra
+    const { rows: gastosObra } = await query(
+      `SELECT SUM(monto) AS total FROM gastos WHERE obra_id = $1 AND tipo = 'rendicion'`,
+      [obraId]
+    );
+
+    return {
+      ingresos: ingresosObra[0]?.total || 0,
+      gastos: gastosObra[0]?.total || 0,
+      resultado: (ingresosObra[0]?.total || 0) - (gastosObra[0]?.total || 0),
+    };
+  },
+
+  async porArea(areaId, mes) {
+    const { rows: ingresosArea } = await query(
+      `SELECT SUM(monto) AS total FROM ingresos
+       WHERE area_id = $1 AND TO_CHAR(fecha_cobro, 'YYYY-MM') = $2`,
+      [areaId, mes]
+    );
+
+    const { rows: gastosArea } = await query(
+      `SELECT categoria, SUM(monto) AS total FROM gastos_operacionales
+       WHERE area_id = $1 AND (periodo_mes = $2 OR TO_CHAR(fecha, 'YYYY-MM') = $2)
+       GROUP BY categoria`,
+      [areaId, mes]
+    );
+
+    return {
+      ingresos: ingresosArea[0]?.total || 0,
+      gastosPorCategoria: gastosArea,
+      gastosTotal: gastosArea.reduce((sum, g) => sum + parseFloat(g.total), 0),
+    };
+  },
+};
+
 module.exports = {
   pool,
   query,
@@ -382,4 +555,7 @@ module.exports = {
   gastos,
   estadoConversacional,
   backupsLog,
+  gastosOperacionales,
+  ingresos,
+  estadoResultados,
 };
