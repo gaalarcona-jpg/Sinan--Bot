@@ -1,0 +1,17 @@
+{
+  "name": "sinan-crm",
+  "version": "1.0.0",
+  "description": "CRM web SINAN — dashboard de obras, rendiciones y estado de resultados",
+  "main": "server.js",
+  "scripts": {
+    "build": "npm install --prefix client && npm run build --prefix client",
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.3"
+  }
+}
