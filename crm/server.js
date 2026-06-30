@@ -28,7 +28,7 @@ const pool = new Pool({
 
 async function runMigrations() {
   const fs = require("fs");
-  const migrationsDir = path.join(__dirname, "..", "migrations");
+  const migrationsDir = path.join(__dirname, "migrations");
   const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith(".sql")).sort();
 
   await pool.query(`
