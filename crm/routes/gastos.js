@@ -29,6 +29,7 @@ router.get("/", async (req, res) => {
         g.imagen_drive_link,
         g.creado_en,
         g.iva_incluido,
+        g.alerta_razon_social,
         o.nombre AS obra_nombre,
         e.nombre AS etapa_nombre,
         ip.nombre AS item_nombre,
@@ -78,6 +79,28 @@ router.get("/pendientes", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error consultando pendientes" });
+  }
+});
+
+// Aprobar (marcar pagado) una rendición — solo admin
+router.post("/:id/aprobar", requireAdmin, async (req, res) => {
+  try {
+    const gastoId = parseInt(req.params.id);
+    if (isNaN(gastoId)) return res.status(400).json({ error: "ID inválido" });
+
+    const { rows } = await req.pool.query(
+      `UPDATE gastos
+       SET estado = 'pagado', monto_pagado = monto, fecha_pago = NOW()
+       WHERE id = $1 AND tipo = 'rendicion' AND estado = 'pendiente'
+       RETURNING id, estado, monto, fecha_pago`,
+      [gastoId]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: "Rendición no encontrada o ya no está pendiente" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error aprobando rendición" });
   }
 });
 

@@ -73,5 +73,7 @@ export const api = {
   estadoResultados: (mes) => req(`/estado-resultados${mes ? "?mes=" + mes : ""}`),
   resultadosObra: (id) => req(`/estado-resultados/obra/${id}`),
 
+  aprobarGasto: (id) => req(`/gastos/${id}/aprobar`, { method: "POST" }),
+
   version: () => req("/version"),
 };

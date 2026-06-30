@@ -13,6 +13,38 @@ function EstadoBadge({ estado }) {
   return <span className="text-xs text-sinan-muted">{estado}</span>;
 }
 
+// Modal de confirmación de aprobación
+function ModalAprobar({ gasto, onConfirm, onCancel, loading }) {
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="bg-sinan-card border border-sinan-border rounded-2xl w-full max-w-sm p-5">
+        <div className="text-base font-semibold text-sinan-text mb-1">¿Marcar como pagado?</div>
+        <div className="text-sm text-sinan-muted mb-4">
+          <span className="text-gold-400 font-semibold">{fmt(gasto.monto)}</span>
+          {gasto.proveedor_nombre ? ` a ${gasto.proveedor_nombre}` : ""}
+          {gasto.obra_nombre ? ` · ${gasto.obra_nombre}` : ""}
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 py-3 rounded-xl text-sm font-medium bg-sinan-surface border border-sinan-border text-sinan-muted"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-3 rounded-xl text-sm font-semibold bg-green-700 text-white disabled:opacity-50"
+          >
+            {loading ? "Aprobando…" : "✅ Confirmar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Rendiciones() {
   const [params] = useSearchParams();
   const obraId = params.get("obraId");
@@ -22,6 +54,11 @@ export default function Rendiciones() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modo, setModo] = useState(soloMode ? "pendientes" : "todas");
+  const [confirmando, setConfirmando] = useState(null); // gasto a aprobar
+  const [aprobando, setAprobando] = useState(false);
+
+  const { rol } = getUser();
+  const esAdmin = rol === "admin";
 
   useEffect(() => {
     setLoading(true);
@@ -34,10 +71,38 @@ export default function Rendiciones() {
       .finally(() => setLoading(false));
   }, [modo, obraId]);
 
+  async function handleAprobar() {
+    if (!confirmando) return;
+    setAprobando(true);
+    try {
+      await api.aprobarGasto(confirmando.id);
+      // Actualizar estado localmente sin recargar toda la lista
+      setGastos(prev =>
+        prev.map(g => g.id === confirmando.id ? { ...g, estado: "pagado" } : g)
+      );
+      setConfirmando(null);
+    } catch (e) {
+      setError(e.message);
+      setConfirmando(null);
+    } finally {
+      setAprobando(false);
+    }
+  }
+
   const totalMonto = gastos.reduce((s, g) => s + parseFloat(g.monto || 0), 0);
 
   return (
     <Layout title={modo === "pendientes" ? "Pendientes de pago" : "Rendiciones"}>
+      {/* Modal */}
+      {confirmando && (
+        <ModalAprobar
+          gasto={confirmando}
+          onConfirm={handleAprobar}
+          onCancel={() => setConfirmando(null)}
+          loading={aprobando}
+        />
+      )}
+
       {/* Toggle modo */}
       <div className="flex gap-2 mb-4">
         <button
@@ -77,7 +142,7 @@ export default function Rendiciones() {
       )}
 
       {error && (
-        <div className="card border-red-700/50 text-red-300 text-sm">{error}</div>
+        <div className="card border-red-700/50 text-red-300 text-sm mb-3">{error}</div>
       )}
 
       {!loading && !error && gastos.length === 0 && (
@@ -128,6 +193,16 @@ export default function Rendiciones() {
               >
                 Ver comprobante 📎
               </a>
+            )}
+
+            {/* Botón aprobar — solo admin, solo para pendientes */}
+            {esAdmin && g.estado === "pendiente" && (
+              <button
+                onClick={() => setConfirmando(g)}
+                className="mt-3 w-full py-2.5 rounded-xl text-sm font-semibold bg-green-900/40 border border-green-700/40 text-green-300 hover:bg-green-800/50 transition-colors"
+              >
+                ✅ Aprobar pago
+              </button>
             )}
           </div>
         ))}

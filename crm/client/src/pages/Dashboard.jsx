@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, getUser } from "../api";
 import Layout from "../components/Layout";
-import BarraAvance from "../components/BarraAvance";
+import { BadgePlazo } from "../components/BadgePlazo";
 
 const fmt = (n) => "$" + Math.round(n || 0).toLocaleString("es-CL");
 
@@ -12,6 +12,7 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const navigate = useNavigate();
   const { nombre, rol } = getUser();
+  const esAdmin = rol === "admin";
 
   useEffect(() => {
     api.obras()
@@ -50,37 +51,57 @@ export default function Dashboard() {
             onClick={() => navigate(`/obras/${obra.id}`)}
             className="card text-left active:bg-sinan-border transition-colors"
           >
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <div className="font-semibold text-sinan-text text-base">{obra.nombre}</div>
-                <div className="text-sinan-muted text-sm mt-0.5">
-                  {obra.etapasCompletadas}/{obra.etapasCount} etapas completadas
-                </div>
-              </div>
-              <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                obra.pctAvance >= 100 ? "badge-danger" :
-                obra.pctAvance >= 90  ? "badge-warn" :
-                "badge-ok"
-              }`}>
-                {obra.pctAvance}%
+            {/* Cabecera */}
+            <div className="flex items-start justify-between mb-2">
+              <div className="font-semibold text-sinan-text text-base">{obra.nombre}</div>
+              <span className="text-xs text-sinan-muted ml-2 shrink-0">
+                {obra.etapasCompletadas}/{obra.etapasCount} etapas
               </span>
             </div>
 
-            <BarraAvance
-              pct={obra.pctAvance}
-              gastado={obra.gastadoTotal}
-              presupuesto={obra.presupuestoTotal}
-            />
+            {/* Métricas financieras */}
+            {esAdmin ? (
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <div>
+                  <div className="text-xs text-sinan-muted">Contrato</div>
+                  <div className="text-sm font-semibold text-gold-400">
+                    {obra.contrato != null ? fmt(obra.contrato) : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-sinan-muted">Cobrado</div>
+                  <div className={`text-sm font-semibold ${obra.cobrado > 0 ? "text-green-400" : "text-sinan-text"}`}>
+                    {fmt(obra.cobrado ?? 0)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-sinan-muted">Gastado</div>
+                  <div className="text-sm font-semibold text-sinan-text">
+                    {fmt(obra.gastadoTotal)}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-2">
+                <div className="text-xs text-sinan-muted">Gastado</div>
+                <div className="text-sm font-semibold text-sinan-text">{fmt(obra.gastadoTotal)}</div>
+              </div>
+            )}
 
-            <div className="flex justify-between mt-3 text-xs text-sinan-muted">
-              <span>Gastado: <span className="text-sinan-text font-medium">{fmt(obra.gastadoTotal)}</span></span>
-              <span>Ppto: <span className="text-sinan-text font-medium">{fmt(obra.presupuestoTotal)}</span></span>
-            </div>
+            {/* Badge de plazo de etapa activa */}
+            {obra.etapaActiva ? (
+              <div className="flex flex-col gap-1">
+                <div className="text-xs text-sinan-muted">{obra.etapaActiva.nombre}</div>
+                <BadgePlazo plazo={obra.etapaActiva.plazo} />
+              </div>
+            ) : (
+              <div className="text-xs text-sinan-muted/60 italic">Sin plazo activo</div>
+            )}
           </button>
         ))}
       </div>
 
-      {rol === "admin" && obras.length > 0 && (
+      {esAdmin && obras.length > 0 && (
         <button
           onClick={() => navigate("/resultados")}
           className="mt-6 w-full border border-gold-500/40 text-gold-400 font-medium py-4 rounded-xl text-base hover:bg-gold-500/10 transition-colors"

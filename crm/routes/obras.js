@@ -5,40 +5,89 @@ const { alertaPlazo } = require("../plazo");
 const router = Router();
 router.use(requireAuth);
 
-// Lista de obras activas con % avance
+// Lista de obras activas — métricas separadas: Gastado / Contrato / Cobrado
 router.get("/", async (req, res) => {
   try {
-    const { rows } = await req.pool.query(`
+    // Subqueries independientes para evitar producto cartesiano entre
+    // items_presupuesto y gastos al hacer JOIN en el mismo GROUP BY.
+    const { rows: obras } = await req.pool.query(`
       SELECT
         o.id,
         o.nombre,
         o.bono_por_etapa,
-        COALESCE(SUM(ip.presupuesto), 0)::numeric AS presupuesto_total,
-        COALESCE(SUM(CASE WHEN g.estado != 'rechazado' THEN g.monto ELSE 0 END), 0)::numeric AS gastado_total,
-        COUNT(DISTINCT e.id) AS etapas_count,
-        COUNT(DISTINCT CASE WHEN e.estado = 'completada' THEN e.id END) AS etapas_completadas
+        (
+          SELECT COALESCE(SUM(g.monto), 0)::numeric
+          FROM gastos g
+          WHERE g.obra_id = o.id AND g.tipo = 'rendicion' AND g.estado != 'rechazado'
+        ) AS gastado_total,
+        (SELECT COUNT(*) FROM etapas e WHERE e.obra_id = o.id)::int AS etapas_count,
+        (SELECT COUNT(*) FROM etapas e WHERE e.obra_id = o.id AND e.estado = 'completada')::int AS etapas_completadas
       FROM obras o
-      LEFT JOIN etapas e ON e.obra_id = o.id
-      LEFT JOIN items_presupuesto ip ON ip.etapa_id = e.id
-      LEFT JOIN gastos g ON g.obra_id = o.id AND g.tipo = 'rendicion'
       WHERE o.activa = true
-      GROUP BY o.id, o.nombre, o.bono_por_etapa
       ORDER BY o.nombre
     `);
 
-    const obras = rows.map(o => ({
-      id: o.id,
-      nombre: o.nombre,
-      presupuestoTotal: parseFloat(o.presupuesto_total),
-      gastadoTotal: parseFloat(o.gastado_total),
-      pctAvance: o.presupuesto_total > 0
-        ? Math.round((o.gastado_total / o.presupuesto_total) * 100)
-        : 0,
-      etapasCount: parseInt(o.etapas_count),
-      etapasCompletadas: parseInt(o.etapas_completadas),
-    }));
+    const obraIds = obras.map(o => o.id);
 
-    res.json(obras);
+    // Primera etapa no-completada con plazo, por obra — para el badge del dashboard
+    let etapasActivas = [];
+    if (obraIds.length > 0) {
+      const { rows } = await req.pool.query(`
+        SELECT DISTINCT ON (e.obra_id)
+          e.obra_id,
+          e.id,
+          e.nombre,
+          e.fecha_vencimiento_contrato,
+          e.fecha_vencimiento_interna
+        FROM etapas e
+        WHERE e.obra_id = ANY($1)
+          AND e.estado != 'completada'
+          AND e.fecha_vencimiento_interna IS NOT NULL
+        ORDER BY e.obra_id, e.id ASC
+      `, [obraIds]);
+      etapasActivas = rows;
+    }
+
+    let payload = obras.map(o => {
+      const ea = etapasActivas.find(e => e.obra_id === o.id) || null;
+      return {
+        id: o.id,
+        nombre: o.nombre,
+        gastadoTotal: parseFloat(o.gastado_total),
+        etapasCount: o.etapas_count,
+        etapasCompletadas: o.etapas_completadas,
+        etapaActiva: ea ? {
+          id: ea.id,
+          nombre: ea.nombre,
+          plazo: alertaPlazo(ea.fecha_vencimiento_contrato, ea.fecha_vencimiento_interna),
+        } : null,
+      };
+    });
+
+    // Datos financieros del contrato y cobros — solo admin
+    if (req.user.rol === "admin" && obraIds.length > 0) {
+      const [{ rows: contratos }, { rows: cobrados }] = await Promise.all([
+        req.pool.query(
+          "SELECT obra_id, precio_venta::numeric AS contrato FROM obras_comercial WHERE obra_id = ANY($1)",
+          [obraIds]
+        ),
+        req.pool.query(
+          "SELECT obra_id, COALESCE(SUM(monto), 0)::numeric AS cobrado FROM ingresos WHERE obra_id = ANY($1) GROUP BY obra_id",
+          [obraIds]
+        ),
+      ]);
+
+      const cMap = Object.fromEntries(contratos.map(r => [r.obra_id, parseFloat(r.contrato)]));
+      const iMap = Object.fromEntries(cobrados.map(r => [r.obra_id, parseFloat(r.cobrado)]));
+
+      payload = payload.map(o => ({
+        ...o,
+        contrato: cMap[o.id] ?? null,
+        cobrado: iMap[o.id] ?? 0,
+      }));
+    }
+
+    res.json(payload);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error consultando obras" });
