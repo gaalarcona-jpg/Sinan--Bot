@@ -1,5 +1,6 @@
 const { Router } = require("express");
 const { requireAuth, requireAdmin } = require("./auth");
+const { alertaPlazo } = require("../plazo");
 
 const router = Router();
 router.use(requireAuth);
@@ -60,13 +61,17 @@ router.get("/:id", async (req, res) => {
         e.nombre,
         e.estado,
         e.completada_en,
+        e.fecha_vencimiento_contrato,
+        e.fecha_vencimiento_interna,
+        e.buffer_dias_interno,
         COALESCE(SUM(ip.presupuesto), 0)::numeric AS presupuesto_total,
         COALESCE(SUM(CASE WHEN g.estado != 'rechazado' THEN g.monto ELSE 0 END), 0)::numeric AS gastado_total
       FROM etapas e
       LEFT JOIN items_presupuesto ip ON ip.etapa_id = e.id
       LEFT JOIN gastos g ON g.etapa_id = e.id AND g.tipo = 'rendicion'
       WHERE e.obra_id = $1
-      GROUP BY e.id, e.nombre, e.estado, e.completada_en
+      GROUP BY e.id, e.nombre, e.estado, e.completada_en,
+               e.fecha_vencimiento_contrato, e.fecha_vencimiento_interna, e.buffer_dias_interno
       ORDER BY e.id
     `, [obraId]);
 
@@ -84,6 +89,13 @@ router.get("/:id", async (req, res) => {
         pctAvance: e.presupuesto_total > 0
           ? Math.round((e.gastado_total / e.presupuesto_total) * 100)
           : 0,
+        fechaVencimientoContrato: e.fecha_vencimiento_contrato
+          ? new Date(e.fecha_vencimiento_contrato).toISOString().split("T")[0]
+          : null,
+        fechaVencimientoInterna: e.fecha_vencimiento_interna
+          ? new Date(e.fecha_vencimiento_interna).toISOString().split("T")[0]
+          : null,
+        plazo: alertaPlazo(e.fecha_vencimiento_contrato, e.fecha_vencimiento_interna),
       })),
     };
 
@@ -133,9 +145,19 @@ router.get("/:id/etapas/:etapaId", async (req, res) => {
 
     const etapaRows = await req.pool.query("SELECT * FROM etapas WHERE id = $1 AND obra_id = $2", [etapaId, obraId]);
     if (!etapaRows.rows.length) return res.status(404).json({ error: "Etapa no encontrada" });
+    const etapaRow = etapaRows.rows[0];
 
     res.json({
-      etapa: etapaRows.rows[0],
+      etapa: {
+        ...etapaRow,
+        fechaVencimientoContrato: etapaRow.fecha_vencimiento_contrato
+          ? new Date(etapaRow.fecha_vencimiento_contrato).toISOString().split("T")[0]
+          : null,
+        fechaVencimientoInterna: etapaRow.fecha_vencimiento_interna
+          ? new Date(etapaRow.fecha_vencimiento_interna).toISOString().split("T")[0]
+          : null,
+        plazo: alertaPlazo(etapaRow.fecha_vencimiento_contrato, etapaRow.fecha_vencimiento_interna),
+      },
       items: items.map(i => ({
         id: i.id,
         nombre: i.nombre,

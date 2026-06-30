@@ -116,6 +116,12 @@ const etapas = {
     );
     return rows[0];
   },
+  async actualizarPlazoInterno(etapaId, fecha) {
+    await query("UPDATE etapas SET fecha_vencimiento_interna = $2 WHERE id = $1", [etapaId, fecha || null]);
+  },
+  async actualizarPlazoContrato(etapaId, fecha) {
+    await query("UPDATE etapas SET fecha_vencimiento_contrato = $2 WHERE id = $1", [etapaId, fecha || null]);
+  },
   // Avance de gasto real vs presupuesto de la etapa — no expone margen/utilidad,
   // solo presupuesto interno (mismo dato que ya ve cualquier rol en "resumen").
   async avance(etapaId) {

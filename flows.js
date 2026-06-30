@@ -4,6 +4,7 @@ const drive = require("./drive");
 const claude = require("./claude");
 const reports = require("./reports");
 const { fmtMonto, fmtFecha, contieneRazonSocialValida, telefonoCompleto } = require("./format");
+const { alertaPlazo, textoAlertaWhatsApp } = require("./plazo");
 
 const TOLERANCIA_DISCREPANCIA = 1; // pesos — diferencias menores se consideran "el mismo monto"
 
@@ -621,12 +622,25 @@ async function handleEstadoEtapa(usuario, datos) {
   const { presupuestoTotal, gastadoTotal } = await db.etapas.avance(datos.etapaId);
   const pct = presupuestoTotal > 0 ? Math.round((gastadoTotal / presupuestoTotal) * 100) : 0;
   const estadoTexto = etapa.estado === "completada" ? "✅ Completada" : "🔧 En curso";
+
+  let msgPlazo = "";
+  const alerta = alertaPlazo(etapa.fecha_vencimiento_contrato, etapa.fecha_vencimiento_interna);
+  if (alerta) {
+    const txtAlerta = textoAlertaWhatsApp(etapa.nombre, alerta);
+    if (txtAlerta) {
+      msgPlazo = `\n\n${txtAlerta}`;
+    } else {
+      msgPlazo = `\n📅 Plazo interno: ${alerta.fechaInterna || "—"} (${alerta.diasInterno} días)`;
+    }
+  }
+
   return {
     completo: true,
     mensaje:
       `📍 *${datos.obraNombre} — ${etapa.nombre}*\n` +
       `Estado: ${estadoTexto}\n` +
-      `Gasto real: ${fmtMonto(gastadoTotal)} / Presupuesto: ${fmtMonto(presupuestoTotal)} (${pct}%)`,
+      `Gasto real: ${fmtMonto(gastadoTotal)} / Presupuesto: ${fmtMonto(presupuestoTotal)} (${pct}%)` +
+      msgPlazo,
   };
 }
 
@@ -936,6 +950,25 @@ const HANDLERS = {
 };
 
 // ============================================================
+// COMANDO PLAZO INTERNO (accesible a todos los roles)
+// Formato: plazo interno / NombreObra / NombreEtapa / YYYY-MM-DD
+// ============================================================
+async function intentarComandoPlazoInterno(texto) {
+  const partes = texto.split("/").map((p) => p.trim());
+  if (partes[0].toLowerCase() !== "plazo interno" || partes.length < 4) return null;
+  const obra = await db.obras.porNombreAprox(partes[1]);
+  if (!obra) return `❌ No encontré la obra "${partes[1]}".`;
+  const etapa = await db.etapas.porObraYNombreAprox(obra.id, partes[2]);
+  if (!etapa) return `❌ No encontré la etapa "${partes[2]}" en ${obra.nombre}.`;
+  const fecha = partes[3].trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return `❌ Fecha inválida. Usa formato YYYY-MM-DD (ej: 2026-07-17).`;
+  await db.etapas.actualizarPlazoInterno(etapa.id, fecha);
+  const alerta = alertaPlazo(etapa.fecha_vencimiento_contrato, fecha);
+  const nivelTexto = alerta ? ` ${alerta.emoji} ${alerta.mensaje}` : "";
+  return `✅ Plazo interno de *${obra.nombre} — ${etapa.nombre}* actualizado a ${fecha}.${nivelTexto}`;
+}
+
+// ============================================================
 // COMANDOS ADMINISTRATIVOS (deterministas, solo gary/admin)
 // ============================================================
 async function intentarComandoAdmin(usuario, texto) {
@@ -971,6 +1004,21 @@ async function intentarComandoAdmin(usuario, texto) {
     const monto = Number(montoRaw.replace(/[$.]/g, ""));
     const item = await db.itemsPresupuesto.crearOActualizar({ etapaId: etapa.id, nombre: nombreItem, presupuesto: monto });
     return `✅ Presupuesto de "${item.nombre}" en ${obra.nombre} ${etapa.nombre} actualizado a ${fmtMonto(monto)}.`;
+  }
+  if (cmd === "plazo contrato" && partes.length >= 4) {
+    const obra = await db.obras.porNombreAprox(partes[1]);
+    if (!obra) return `❌ No encontré la obra "${partes[1]}".`;
+    const etapa = await db.etapas.porObraYNombreAprox(obra.id, partes[2]);
+    if (!etapa) return `❌ No encontré la etapa "${partes[2]}" en ${obra.nombre}.`;
+    const fecha = partes[3].trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return `❌ Fecha inválida. Usa formato YYYY-MM-DD (ej: 2026-07-31).`;
+    await db.etapas.actualizarPlazoContrato(etapa.id, fecha);
+    const buffer = etapa.buffer_dias_interno || 14;
+    const dt = new Date(fecha);
+    dt.setDate(dt.getDate() - buffer);
+    const fechaInterna = dt.toISOString().split("T")[0];
+    await db.etapas.actualizarPlazoInterno(etapa.id, fechaInterna);
+    return `✅ Plazo contractual de *${obra.nombre} — ${etapa.nombre}* actualizado a ${fecha}.\n📅 Plazo interno ajustado automáticamente a ${fechaInterna} (${buffer} días buffer).`;
   }
   if (cmd === "precio venta" && partes.length >= 3) {
     const dbComercial = require("./db_comercial");
@@ -1024,6 +1072,15 @@ async function procesarMensaje(usuario, mensajes) {
     }) : null;
     if (respuestaAdmin) {
       await whatsapp.sendText(usuario.telefono, respuestaAdmin);
+      return;
+    }
+
+    const respuestaPlazo = texto ? await intentarComandoPlazoInterno(texto).catch((e) => {
+      console.error("Error en comando plazo interno:", e.message);
+      return null;
+    }) : null;
+    if (respuestaPlazo) {
+      await whatsapp.sendText(usuario.telefono, respuestaPlazo);
       return;
     }
   }
