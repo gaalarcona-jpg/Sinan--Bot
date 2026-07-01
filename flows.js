@@ -34,11 +34,16 @@ function limpiarNoNulos(obj) {
 
 // mensajes: uno o más webhooks agrupados por index.js (ver BUFFER_MS) — se
 // combinan en un solo texto y se usan todas las imágenes (BUG 2 fix).
+const KEYWORDS_INGRESO = /cobr[eé]|recib[ií]|me pag[oó]|ingreso|dep[oó]sito|transfer[ei]/i;
+const KEYWORDS_GASTO = /compr[eé]|pagu[eé]|boleta|factura|rendici[oó]n/i;
+
 function extraerTextoYMedia(mensajes) {
   const textos = [];
   const medias = [];
   let mediaEsReenviada = false;
   let archivoNoSoportado = null;
+  let pdfComprobante = null; // PDF con contexto de ingreso → subir a Drive
+  let pdfAmbigu = null;      // PDF sin contexto claro → preguntar
 
   for (const msg of mensajes) {
     // BUG 1 fix: detectar mensajes reenviados
@@ -54,18 +59,33 @@ function extraerTextoYMedia(mensajes) {
     const m = msg.image || msg.document || null;
     if (!m) continue;
 
-    // BUG 3 fix: ignorar documentos xlsx/pdf pero capturar caption
     if (msg.type === "document") {
       const filename = m.filename || "archivo";
-      const ext = filename.split(".").pop()?.toLowerCase();
-      if (["xlsx", "xls", "pdf", "doc", "docx"].includes(ext)) {
-        archivoNoSoportado = { filename, tipo: ext };
-        if (m.caption?.trim()) textos.push(m.caption.trim());
-        continue; // No agregar a medias
+      const ext = (filename.split(".").pop() || "").toLowerCase();
+      const caption = m.caption?.trim() || "";
+      if (caption) textos.push(caption);
+
+      if (ext === "pdf") {
+        if (KEYWORDS_INGRESO.test(caption)) {
+          pdfComprobante = { id: m.id, filename };
+        } else if (KEYWORDS_GASTO.test(caption)) {
+          archivoNoSoportado = { filename, tipo: "pdf", esGasto: true };
+        } else {
+          pdfAmbigu = { id: m.id, filename };
+        }
+        continue;
       }
+
+      // Documentos no-PDF (xlsx, doc, etc)
+      if (["xlsx", "xls", "doc", "docx"].includes(ext)) {
+        archivoNoSoportado = { filename, tipo: ext };
+        continue;
+      }
+      archivoNoSoportado = { filename, tipo: ext };
+      continue;
     }
 
-    // Capturar caption
+    // Capturar caption de imágenes
     if (m.caption?.trim()) textos.push(m.caption.trim());
 
     // BUG 2 fix: agregar TODAS las imágenes al array (no solo la primera)
@@ -77,6 +97,8 @@ function extraerTextoYMedia(mensajes) {
     medias,
     mediaEsReenviada,
     archivoNoSoportado,
+    pdfComprobante,
+    pdfAmbigu,
   };
 }
 
@@ -933,6 +955,97 @@ async function handleConsultarEstadoResultados(usuario, datos) {
   return { completo: true, mensaje };
 }
 
+const TIPOS_INVERSION = {
+  activo_fijo: "Activo fijo (equipos/maquinaria)",
+  herramienta: "Herramienta",
+  vehiculo: "Vehículo",
+  material_stock: "Material en stock",
+  otro: "Otro",
+};
+
+async function handleRegistrarInversion(usuario, datos) {
+  if (!esAdmin(usuario)) {
+    return { completo: true, mensaje: "Solo Gary puede registrar inversiones." };
+  }
+
+  const tipoInversion = datos.tipoInversionId || datos.tipo_inversion;
+
+  if (!tipoInversion) {
+    const lista = Object.entries(TIPOS_INVERSION).map(([id, nombre], i) => ({
+      id, nombre,
+      linea: `${numeroEmoji(i + 1)} ${nombre}`,
+    }));
+    return {
+      completo: false,
+      pregunta: `¿Qué tipo de inversión es?\n${lista.map((l) => l.linea).join("\n")}`,
+      datosExtra: {
+        opcionesPendientes: {
+          lista: lista.map(({ id, nombre }) => ({ id, nombre })),
+          campo: "tipoInversion",
+        },
+      },
+    };
+  }
+
+  const descripcionActivo = datos.descripcionId /* never set */ || datos.descripcion_activo || datos.descripcion;
+
+  if (!descripcionActivo) {
+    return {
+      completo: false,
+      pregunta: "¿Cuál es la descripción del activo? (ej: Andamio 6m, Notebook Dell, Camioneta Ford Ranger)",
+    };
+  }
+
+  const monto = datos.monto ?? datos.monto_imagen;
+
+  if (monto == null) {
+    return { completo: false, pregunta: "¿Cuál es el monto de la inversión?" };
+  }
+
+  if (!datos.confirmacionPendiente) {
+    const resumen = [
+      `- Tipo: ${TIPOS_INVERSION[tipoInversion] || tipoInversion}`,
+      `- Descripción: ${descripcionActivo}`,
+      `- Monto: ${fmtMonto(monto)}`,
+      datos.proveedorNombre ? `- Proveedor: ${datos.proveedorNombre}` : "",
+      datos.vida_util_anos ? `- Vida útil: ${datos.vida_util_anos} año(s)` : "",
+    ].filter(Boolean).join("\n");
+    return {
+      completo: false,
+      pregunta: `🏗️ Voy a registrar inversión:\n${resumen}\n¿Confirmas? (sí/no)`,
+      datosExtra: { confirmacionPendiente: true },
+    };
+  }
+
+  if (datos.confirma !== true) {
+    return {
+      completo: false,
+      pregunta: `¿Confirmás la inversión de ${fmtMonto(monto)} en ${descripcionActivo}? (sí/no)`,
+      datosExtra: { confirmacionPendiente: true },
+    };
+  }
+
+  const { rows } = await db.query(
+    `INSERT INTO inversiones
+       (tipo, descripcion, monto, proveedor, vida_util_anos, comprobante_pdf_link, registrado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+    [
+      tipoInversion,
+      descripcionActivo,
+      monto,
+      datos.proveedorNombre || datos.proveedor || null,
+      datos.vida_util_anos || null,
+      datos.comprobanteDriveLink || null,
+      usuario.id,
+    ]
+  );
+
+  return {
+    completo: true,
+    mensaje: `✅ Inversión #${rows[0].id} registrada: ${TIPOS_INVERSION[tipoInversion] || tipoInversion} — ${descripcionActivo} por ${fmtMonto(monto)}.`,
+  };
+}
+
 const HANDLERS = {
   REGISTRAR_RENDICION: handleRegistrarRendicion,
   REGISTRAR_ACUERDO: handleRegistrarAcuerdo,
@@ -945,6 +1058,7 @@ const HANDLERS = {
   REGISTRAR_GASTO_OPERACIONAL: handleRegistrarGastoOperacional,
   REGISTRAR_INGRESO: handleRegistrarIngreso,
   CONSULTAR_ESTADO_RESULTADOS: handleConsultarEstadoResultados,
+  REGISTRAR_INVERSION: handleRegistrarInversion,
   PEDIR_AYUDA: (usuario) => handleAyuda(usuario),
   DESCONOCIDO: () => handleDesconocido(),
 };
@@ -1042,15 +1156,49 @@ async function intentarComandoAdmin(usuario, texto) {
 // ENTRYPOINT
 // ============================================================
 async function procesarMensaje(usuario, mensajes) {
-  const { texto, medias, mediaEsReenviada, archivoNoSoportado } = extraerTextoYMedia(mensajes);
+  const { texto, medias, mediaEsReenviada, archivoNoSoportado, pdfComprobante, pdfAmbigu } = extraerTextoYMedia(mensajes);
 
-  // BUG 3 fix: responder cuando se recibe archivo no soportado
-  if (archivoNoSoportado) {
+  // PDF de boleta/factura enviado como PDF → pedir foto
+  if (archivoNoSoportado?.esGasto) {
+    await whatsapp.sendText(
+      usuario.telefono,
+      `Las boletas y facturas van como *foto*, no como PDF. Fotografía el documento y envíamelo.`
+    );
+    if (!texto && medias.length === 0 && !pdfComprobante) return;
+  }
+
+  // PDF sin contexto claro → preguntar al usuario
+  if (pdfAmbigu) {
+    await whatsapp.sendText(
+      usuario.telefono,
+      `Recibí el PDF *${pdfAmbigu.filename}*. ¿Es un comprobante de *ingreso* (pago recibido) o de un *gasto*? Escríbeme "ingreso" o "gasto".`
+    );
+    return;
+  }
+
+  // BUG 3 fix: responder cuando se recibe archivo no soportado (xlsx/doc/etc)
+  if (archivoNoSoportado && !archivoNoSoportado.esGasto) {
     await whatsapp.sendText(
       usuario.telefono,
       `Recibí tu archivo *${archivoNoSoportado.filename}*. Por ahora solo proceso imágenes de boletas — para cargar una rendición desde Excel, escríbeme los montos o manda las fotos de las boletas.`
     );
     if (!texto && medias.length === 0) return; // Si solo envió el archivo, terminar aquí
+  }
+
+  // PDF comprobante de ingreso → subir a Drive antes de llamar a Claude
+  let comprobantePdfFileId = null;
+  let comprobantePdfLink = null;
+  if (pdfComprobante) {
+    try {
+      const { buffer, mimeType } = await whatsapp.downloadMedia(pdfComprobante.id);
+      const nombrePdf = `comprobante_${usuario.telefono}_${Date.now()}.pdf`;
+      const subida = await drive.subirImagen(buffer, nombrePdf, mimeType || "application/pdf");
+      comprobantePdfFileId = subida.fileId;
+      comprobantePdfLink = subida.webViewLink;
+      console.log("[flows] PDF comprobante subido a Drive:", comprobantePdfLink);
+    } catch (e) {
+      console.error("Error subiendo PDF comprobante a Drive:", e.message);
+    }
   }
 
   if (/^\s*cancelar\s*$/i.test(texto || "")) {
@@ -1190,6 +1338,13 @@ async function procesarMensaje(usuario, mensajes) {
       datos.imagenDriveId = imagenSubida.fileId;
       datos.imagenDriveLink = imagenSubida.webViewLink;
     }
+  }
+
+  // PDF comprobante de ingreso: inyectar link en comprobanteDriveId/Link
+  if (comprobantePdfLink) {
+    datos.comprobanteDriveId = comprobantePdfFileId;
+    datos.comprobanteDriveLink = comprobantePdfLink;
+    datos.comprobante_pdf = true;
   }
 
   datos = await resolverEntidades(datos);

@@ -9,6 +9,7 @@ const gastosRoute = require("./routes/gastos");
 const resultadosRoute = require("./routes/resultados");
 const versionRoute = require("./routes/version");
 const operacionalRoute = require("./routes/operacional");
+const inversionesRoute = require("./routes/inversiones");
 
 if (!process.env.DATABASE_URL) {
   console.error("Falta DATABASE_URL");
@@ -85,6 +86,7 @@ app.use("/api/obras", obrasRoute);
 app.use("/api/gastos", gastosRoute);
 app.use("/api", operacionalRoute);   // monta /api/gastos-operacionales y /api/ingresos
 app.use("/api/estado-resultados", resultadosRoute);
+app.use("/api/inversiones", inversionesRoute);
 app.use("/api/version", versionRoute);
 
 // Servir frontend estático (en producción)
