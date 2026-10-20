@@ -47,4 +47,16 @@ async function renombrar(fileId, nuevoNombre) {
   await drive.files.update({ fileId, requestBody: { name: nuevoNombre } });
 }
 
-module.exports = { subirImagen, subirBackup, subirReporte, renombrar };
+// Busca un archivo por nombre exacto dentro de una carpeta y devuelve su texto
+// (usado por promos.js). null si no existe.
+async function leerTextoPorNombre(nombre, folderId) {
+ const seguro = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+ const q = `name = '${seguro}' and '${folderId}' in parents and trashed = false`;
+ const { data } = await drive.files.list({ q, fields: "files(id, name, modifiedTime)", orderBy: "modifiedTime desc", pageSize: 1 });
+ const f = data.files?.[0];
+ if (!f) return null;
+ const resp = await drive.files.get({ fileId: f.id, alt: "media" }, { responseType: "text" });
+ return { fileId: f.id, texto: typeof resp.data === "string" ? resp.data : String(resp.data) };
+}
+module.exports = { subirImagen, subirBackup, subirReporte, renombrar, leerTextoPorNombre };
+

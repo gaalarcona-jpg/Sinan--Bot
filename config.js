@@ -41,6 +41,15 @@ const config = {
   BACKUP_CRON_SCHEDULE: process.env.BACKUP_CRON_SCHEDULE || "0 6 * * *",
   BACKUP_TIMEZONE: process.env.BACKUP_TIMEZONE || "America/Santiago",
   RESUMEN_DIARIO_CRON_SCHEDULE: process.env.RESUMEN_DIARIO_CRON_SCHEDULE || "0 8 * * *",
+ // Promos de almuerzo (promos.js). PROMOS_ACTIVO=false lo apaga desde Railway.
+ PROMOS_ACTIVO: (process.env.PROMOS_ACTIVO || "true") !== "false",
+ PROMOS_TO: process.env.PROMOS_TO || "56973068845",
+ PROMOS_TEMPLATE: process.env.PROMOS_TEMPLATE || "promos_almuerzo",
+ PROMOS_TEMPLATE_LANG: process.env.PROMOS_TEMPLATE_LANG || "es",
+ // Intento 11:00 y reintento 11:05; a las 11:15 el último intento avisa si no hay archivo.
+ PROMOS_CRON_SCHEDULE: process.env.PROMOS_CRON_SCHEDULE || "0,5 11 * * 1-5",
+ PROMOS_CRON_ULTIMO: process.env.PROMOS_CRON_ULTIMO || "15 11 * * 1-5",
+
 };
 
 module.exports = Object.freeze(config);
