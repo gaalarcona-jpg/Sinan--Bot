@@ -5,6 +5,9 @@ const db = require("./db");
 const flows = require("./flows");
 const backup = require("./backup");
 const { normalizarTel } = require("./format");
+const whatsapp = require("./whatsapp");
+const drive = require("./drive");
+const { crearPromos, asegurarPlantilla } = require("./promos");
 
 const app = express();
 
@@ -110,5 +113,15 @@ cron.schedule(config.BACKUP_CRON_SCHEDULE, () => {
 cron.schedule(config.RESUMEN_DIARIO_CRON_SCHEDULE, () => {
   flows.enviarResumenDiarioAGary().catch((e) => console.error("Cron resumen diario falló:", e.message));
 }, { timezone: config.BACKUP_TIMEZONE });
+
+// Promos de almuerzo para Gary (no toca flujos financieros).
+if (config.PROMOS_ACTIVO) {
+  const promos = crearPromos({ drive, whatsapp, db: { query: db.query }, config });
+  const correr = (ultimoIntento) => promos.enviarPromosDelDia({ ultimoIntento })
+    .catch((e) => console.error("Cron promos falló:", e.response?.status, JSON.stringify(e.response?.data) || e.message));
+  cron.schedule(config.PROMOS_CRON_SCHEDULE, () => correr(false), { timezone: config.BACKUP_TIMEZONE });
+  cron.schedule(config.PROMOS_CRON_ULTIMO, () => correr(true), { timezone: config.BACKUP_TIMEZONE });
+  asegurarPlantilla({ whatsapp, config });
+}
 
 app.listen(config.PORT, () => console.log(`SINAN Bot v2 corriendo en puerto ${config.PORT}`));
