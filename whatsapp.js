@@ -34,4 +34,49 @@ async function downloadMedia(mediaId) {
   return { buffer: Buffer.from(binResp.data), mimeType: mime_type || "application/octet-stream" };
 }
 
-module.exports = { sendText, downloadMedia };
+// Igual que sendText pero lanza error y devuelve el id del mensaje — para envíos
+// automáticos donde hay que saber si salió (promos.js). sendText queda igual
+// para no cambiar el comportamiento de los flujos financieros.
+async function sendTextStrict(to, body) {
+  const { data } = await axios.post(`${BASE_URL}/messages`, {
+    messaging_product: "whatsapp",
+    to,
+    type: "text",
+    text: { body, preview_url: false },
+  }, { headers });
+  return data?.messages?.[0]?.id || null;
+}
+
+// Envía una plantilla aprobada (funciona fuera de la ventana de 24 h).
+async function sendTemplate(to, name, languageCode, bodyParams = []) {
+  const template = { name, language: { code: languageCode } };
+  if (bodyParams.length) {
+    template.components = [{ type: "body", parameters: bodyParams.map((text) => ({ type: "text", text })) }];
+  }
+  const { data } = await axios.post(`${BASE_URL}/messages`, {
+    messaging_product: "whatsapp",
+    to,
+    type: "template",
+    template,
+  }, { headers });
+  return data?.messages?.[0]?.id || null;
+}
+
+// Plantillas del WABA vía 360dialog (/v1/configs/templates).
+async function plantillaExiste(name) {
+  const { data } = await axios.get(`${BASE_URL}/v1/configs/templates`, { headers, params: { limit: 250 } });
+  const lista = data?.waba_templates || data?.data || [];
+  return lista.find((t) => t.name === name) || null;
+}
+
+async function crearPlantilla({ name, language, category, body, ejemplo }) {
+  const { data } = await axios.post(`${BASE_URL}/v1/configs/templates`, {
+    name,
+    language,
+    category,
+    components: [{ type: "BODY", text: body, example: { body_text: [[ejemplo]] } }],
+  }, { headers });
+  return data;
+}
+
+module.exports = { sendText, sendTextStrict, sendTemplate, plantillaExiste, crearPlantilla, downloadMedia };
