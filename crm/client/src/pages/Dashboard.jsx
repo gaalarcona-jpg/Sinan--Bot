@@ -47,8 +47,8 @@ export default function Dashboard() {
       <div className="flex flex-col gap-3">
         {obras.map(obra => (
           <button
-            key={obra.id}
-            onClick={() => navigate(`/obras/${obra.id}`)}
+            key={obra.nombre}
+            onClick={() => obra.id && navigate(`/obras/${obra.id}`)}
             className="card text-left active:bg-sinan-border transition-colors"
           >
             {/* Cabecera */}
@@ -100,6 +100,12 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
+
+      {obras[0]?.corte && (
+        <p className="text-sinan-muted text-xs mt-4 leading-relaxed">
+          {esAdmin ? "Contrato, cobrado y gastado" : "Gastado"}: datos validados al {obras[0].corte.split("-").reverse().join("-")} más lo que registre el bot desde esa fecha.
+        </p>
+      )}
 
       {esAdmin && obras.length > 0 && (
         <button

@@ -1,6 +1,19 @@
 const { Router } = require("express");
 const { requireAuth, requireAdmin } = require("./auth");
 const { alertaPlazo } = require("../plazo");
+const fs = require("fs");
+const path = require("path");
+
+// Foto validada de contrato / cobrado / gastado por obra (misma fuente que Finanzas).
+// Lo que el bot registre después de `corte` se suma encima.
+function leerResumen() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "data", "obras_resumen.json"), "utf8"));
+  } catch (err) {
+    console.error("obras_resumen.json:", err.message);
+    return null;
+  }
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -8,6 +21,8 @@ router.use(requireAuth);
 // Lista de obras activas — métricas separadas: Gastado / Contrato / Cobrado
 router.get("/", async (req, res) => {
   try {
+    const resumen = leerResumen();
+    const corte = resumen?.corte || "2100-01-01";
     // Subqueries independientes para evitar producto cartesiano entre
     // items_presupuesto y gastos al hacer JOIN en el mismo GROUP BY.
     const { rows: obras } = await req.pool.query(`
@@ -20,12 +35,18 @@ router.get("/", async (req, res) => {
           FROM gastos g
           WHERE g.obra_id = o.id AND g.tipo = 'rendicion' AND g.estado != 'rechazado'
         ) AS gastado_total,
+        (
+          SELECT COALESCE(SUM(g.monto), 0)::numeric
+          FROM gastos g
+          WHERE g.obra_id = o.id AND g.tipo = 'rendicion' AND g.estado != 'rechazado'
+            AND g.creado_en >= $1::date + 1
+        ) AS gastado_post_corte,
         (SELECT COUNT(*) FROM etapas e WHERE e.obra_id = o.id)::int AS etapas_count,
         (SELECT COUNT(*) FROM etapas e WHERE e.obra_id = o.id AND e.estado = 'completada')::int AS etapas_completadas
       FROM obras o
       WHERE o.activa = true
       ORDER BY o.nombre
-    `);
+    `, [corte]);
 
     const obraIds = obras.map(o => o.id);
 
@@ -54,6 +75,7 @@ router.get("/", async (req, res) => {
         id: o.id,
         nombre: o.nombre,
         gastadoTotal: parseFloat(o.gastado_total),
+        gastadoPostCorte: parseFloat(o.gastado_post_corte),
         etapasCount: o.etapas_count,
         etapasCompletadas: o.etapas_completadas,
         etapaActiva: ea ? {
@@ -66,7 +88,7 @@ router.get("/", async (req, res) => {
 
     // Datos financieros del contrato y cobros — solo admin
     if (req.user.rol === "admin" && obraIds.length > 0) {
-      const [{ rows: contratos }, { rows: cobrados }] = await Promise.all([
+      const [{ rows: contratos }, { rows: cobrados }, { rows: cobradosPost }] = await Promise.all([
         req.pool.query(
           "SELECT obra_id, precio_venta::numeric AS contrato FROM obras_comercial WHERE obra_id = ANY($1)",
           [obraIds]
@@ -75,17 +97,51 @@ router.get("/", async (req, res) => {
           "SELECT obra_id, COALESCE(SUM(monto), 0)::numeric AS cobrado FROM ingresos WHERE obra_id = ANY($1) GROUP BY obra_id",
           [obraIds]
         ),
+        req.pool.query(
+          "SELECT obra_id, COALESCE(SUM(monto), 0)::numeric AS cobrado FROM ingresos WHERE obra_id = ANY($1) AND fecha_cobro > $2::date GROUP BY obra_id",
+          [obraIds, corte]
+        ),
       ]);
 
       const cMap = Object.fromEntries(contratos.map(r => [r.obra_id, parseFloat(r.contrato)]));
       const iMap = Object.fromEntries(cobrados.map(r => [r.obra_id, parseFloat(r.cobrado)]));
+      const ipMap = Object.fromEntries(cobradosPost.map(r => [r.obra_id, parseFloat(r.cobrado)]));
 
       payload = payload.map(o => ({
         ...o,
         contrato: cMap[o.id] ?? null,
         cobrado: iMap[o.id] ?? 0,
+        cobradoPostCorte: ipMap[o.id] ?? 0,
       }));
     }
+
+    // Agrupa según la foto validada: una tarjeta por obra del estado de resultado.
+    if (resumen) {
+      const esAdmin = req.user.rol === "admin";
+      const usados = new Set();
+      const tarjetas = resumen.obras.map(g => {
+        const ms = payload.filter(o => g.db.includes(o.nombre));
+        ms.forEach(m => usados.add(m.id));
+        const suma = (k) => ms.reduce((s, m) => s + (m[k] || 0), 0);
+        const t = {
+          id: ms.length === 1 ? ms[0].id : (ms[0]?.id ?? null),
+          nombre: g.grupo,
+          gastadoTotal: g.gastado + suma("gastadoPostCorte"),
+          etapasCount: suma("etapasCount"),
+          etapasCompletadas: suma("etapasCompletadas"),
+          etapaActiva: ms.find(m => m.etapaActiva)?.etapaActiva || null,
+          corte: resumen.corte,
+        };
+        if (esAdmin) {
+          t.contrato = g.contrato ?? (ms.length === 1 ? ms[0].contrato : null);
+          t.cobrado = g.cobrado + suma("cobradoPostCorte");
+        }
+        return t;
+      });
+      const resto = payload.filter(o => !usados.has(o.id));
+      payload = [...tarjetas, ...resto];
+    }
+    payload = payload.map(({ gastadoPostCorte, cobradoPostCorte, ...o }) => o);
 
     res.json(payload);
   } catch (err) {

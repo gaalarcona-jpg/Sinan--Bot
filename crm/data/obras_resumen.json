@@ -1,0 +1,11 @@
+{
+  "corte": "2026-11-11",
+  "fuente": "Contrato: proyecto Ingresos (contratos firmados, incluye adicionales). Cobrado: abonos de la cartola Santander sin arquitectura. Gastado: hoja Pagos Mensuales Sinan (costo de obra). Lo que registre el bot después del corte se suma encima.",
+  "obras": [
+    { "grupo": "Peñaflor (Islevy + Maribel)", "db": ["Peñaflor (Islevy)", "Peñaflor (Maribel)"], "contrato": null, "cobrado": 240211168, "gastado": 189204167 },
+    { "grupo": "Rancagua (Subiabre)", "db": ["Rancagua (Subiabre)"], "contrato": 192253929, "cobrado": 196882419, "gastado": 186319776 },
+    { "grupo": "Codegua (Mardones)", "db": ["Codegua (Mardones)"], "contrato": 293387848, "cobrado": 141248696, "gastado": 93172346 },
+    { "grupo": "Padre Hurtado (Parraguez)", "db": ["Padre Hurtado (Parraguez)"], "contrato": 200102169, "cobrado": 101196290, "gastado": 43156589 },
+    { "grupo": "Cabildo (Escobar)", "db": ["Cabildo (Escobar)"], "contrato": 460818344, "cobrado": 73150000, "gastado": 12655097 }
+  ]
+}
