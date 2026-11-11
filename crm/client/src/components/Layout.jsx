@@ -73,6 +73,14 @@ export default function Layout({ children, title, backTo }) {
             onClick={() => navigate("/resultados")}
           />
         )}
+        {rol === "admin" && (
+          <NavBtn
+            label="Finanzas"
+            icon="💰"
+            active={isActive("/finanzas")}
+            onClick={() => navigate("/finanzas")}
+          />
+        )}
       </nav>
 
       {/* Footer version */}
@@ -87,7 +95,7 @@ function NavBtn({ label, icon, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center gap-0.5 px-5 py-2 rounded-xl transition-colors ${
+      className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-colors ${
         active ? "text-gold-500 bg-gold-500/10" : "text-sinan-muted"
       }`}
     >

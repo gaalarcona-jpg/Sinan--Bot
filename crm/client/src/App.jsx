@@ -5,6 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import ObraDetalle from "./pages/ObraDetalle";
 import EstadoResultados from "./pages/EstadoResultados";
 import Rendiciones from "./pages/Rendiciones";
+import Finanzas from "./pages/Finanzas";
 
 function RequireAuth({ children }) {
   const { token } = getUser();
@@ -39,6 +40,10 @@ export default function App() {
         <Route
           path="/rendiciones"
           element={<RequireAuth><Rendiciones /></RequireAuth>}
+        />
+        <Route
+          path="/finanzas"
+          element={<RequireAdmin><Finanzas /></RequireAdmin>}
         />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

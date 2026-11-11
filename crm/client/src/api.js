@@ -75,5 +75,7 @@ export const api = {
 
   aprobarGasto: (id) => req(`/gastos/${id}/aprobar`, { method: "POST" }),
 
+  finanzas: () => req("/finanzas"),
+
   version: () => req("/version"),
 };
