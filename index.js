@@ -101,6 +101,34 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
+// Diagnóstico de conexiones externas (sin exponer claves). Resultado cacheado 5 min.
+let diagCache = null;
+app.get("/diag", async (req, res) => {
+  if (diagCache && Date.now() - diagCache.t < 5 * 60 * 1000) return res.json(diagCache.r);
+  const r = { node: process.version, modelo: config.ANTHROPIC_MODEL, timestamp: new Date().toISOString() };
+  try {
+    const Anthropic = require("@anthropic-ai/sdk");
+    const c = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
+    await c.messages.create({ model: config.ANTHROPIC_MODEL, max_tokens: 5, messages: [{ role: "user", content: "ok" }] });
+    r.claude = "OK";
+  } catch (e) { r.claude = `ERROR ${e.status || ""} ${e.message}`.slice(0, 300); }
+  try {
+    const { google } = require("googleapis");
+    const a = new google.auth.OAuth2(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET);
+    a.setCredentials({ refresh_token: config.GOOGLE_REFRESH_TOKEN });
+    await a.getAccessToken();
+    r.google = "OK";
+  } catch (e) { r.google = `ERROR ${e.response?.status || ""} ${e.response?.data?.error || ""} ${e.message}`.slice(0, 300); }
+  try {
+    const t = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: config.GOOGLE_CLIENT_ID, client_secret: config.GOOGLE_CLIENT_SECRET, refresh_token: config.GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }) });
+    const j = await t.json();
+    r.google_fetch = t.ok ? "OK" : `ERROR ${t.status} ${j.error || ""} ${j.error_description || ""}`;
+  } catch (e) { r.google_fetch = `ERROR ${e.message}`.slice(0, 300); }
+  diagCache = { t: Date.now(), r };
+  res.json(r);
+});
+
 app.get("/", (req, res) => res.json({ status: "SINAN Bot v2 activo", timestamp: new Date().toISOString() }));
 
 cron.schedule(config.BACKUP_CRON_SCHEDULE, () => {
