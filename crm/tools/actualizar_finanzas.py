@@ -69,11 +69,20 @@ def opex_sub(d):
 
 
 def leer_pagos(texto, cfg):
-    partes = texto.split("## Sheet name: ")
-    sec = next((p for p in partes if p.startswith("Pagos Mensuales")), None)
-    if sec is None:
-        sys.exit("No encontré la pestaña 'Pagos Mensuales Sinan' en el export de gastos")
-    raw = [r for r in list(csv.reader(io.StringIO(sec.split("\n", 1)[1])))[1:] if len(r) > 5 and r[2].strip()]
+    # Acepta el texto del conector de Drive ("## Sheet name: ...") o el CSV exportado de la pestaña.
+    if "## Sheet name: " in texto:
+        sec = next((p for p in texto.split("## Sheet name: ") if p.startswith("Pagos Mensuales")), None)
+        if sec is None:
+            sys.exit("No encontré la pestaña 'Pagos Mensuales Sinan' en el export de gastos")
+        texto = sec.split("\n", 1)[1]
+    filas_csv = list(csv.reader(io.StringIO(texto.lstrip("\ufeff"))))
+    h = next((k for k, r in enumerate(filas_csv) if "Fecha" in r and any(c.startswith("Detalle") for c in r)), None)
+    if h is None:
+        sys.exit("No encontré la fila de títulos (Fecha / Detalle Gastos) en la hoja de pagos")
+    hdr = filas_csv[h]
+    col = lambda pref: next(k for k, c in enumerate(hdr) if c.strip().startswith(pref))
+    C = [col("Fecha"), col("Detalle"), col("Mes de Gest"), col("Valor"), col("Etapa"), col("Casa"), col("Categor")]
+    raw = [[r[k].strip() if k < len(r) else "" for k in C] for r in filas_csv[h + 1:] if len(r) > C[1] and r[C[0]].strip()]
     casa_obra = {}
     for o in cfg["obras_resultado"]:
         for c in o["casas"]:
@@ -86,8 +95,8 @@ def leer_pagos(texto, cfg):
     for c, n in cfg["otras_obras_casas"].items():
         casa_obra[c] = ("otra", n)
     filas = []
-    for i, r in enumerate(raw, start=3):
-        fecha_txt, det, mesg, val, etapa, casa, cat = [x.strip() for x in r[2:9]]
+    for i, r in enumerate(raw, start=h + 2):
+        fecha_txt, det, mesg, val, etapa, casa, cat = r
         monto = money(val)
         try:
             d, m, y = map(int, fecha_txt.split("-"))
