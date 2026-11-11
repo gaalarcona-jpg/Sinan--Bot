@@ -1,6 +1,6 @@
 {
  "corte": "2026-11-11",
- "fuente": "Planilla SINAN CHILE – Estado de Costos 2025-2026 (costos: Pagos Mensuales Sinan; ingresos: cartola Santander desde sep-2025). Arquitectura fuera del resultado. Deudas confirmadas por Gary el 11-11-2026. Intereses de créditos estimados con la tasa implícita de cada crédito (BCI 60: 1,59% mensual; 35 MM: 1,10%; BCI 30 y Jeannette 60 con 1,59%). Olmué y Los Andes quedan fuera del resultado (decisión de Gary 11-11-2026: sus ingresos no están registrados completos).",
+ "fuente": "Costos: hoja \"Pagos Mensuales Sinan\"; ingresos: cartola Santander desde sep-2025 (dashboard de cobranza). Arquitectura fuera del resultado. Deudas confirmadas por Gary el 11-11-2026. Intereses de créditos estimados con la tasa implícita de cada crédito. Olmué y Los Andes quedan fuera del resultado (ingresos no registrados completos). Se actualiza sola todos los días.",
  "meses": [
   "2025-09 sep",
   "2025-10 oct",
@@ -603,7 +603,7 @@
     "cuotas_total": 60,
     "cuotas_pagadas": 28,
     "interes_mes": null,
-    "nota": "Cuota 21 de 60 pagada el 02-04-2026. Saldo = cuotas que faltan × cuota (incluye intereses futuros)."
+    "nota": "Saldo = cuotas que faltan × cuota (incluye intereses futuros)."
    },
    {
     "deuda": "Crédito BCI 30 cuotas",
@@ -614,7 +614,7 @@
     "cuotas_total": 30,
     "cuotas_pagadas": 11,
     "interes_mes": null,
-    "nota": "Cuotas 1 a 3 pagadas (confirmado 11-11-2026)."
+    "nota": "Cuotas 1 a 3 pagadas (confirmado 11-11-2026). Tasa supuesta igual al BCI 60."
    },
    {
     "deuda": "Crédito Jeannette 60 cuotas ($1.750.000)",
@@ -647,7 +647,7 @@
     "cuotas_total": 36,
     "cuotas_pagadas": 18,
     "interes_mes": null,
-    "nota": "18 cuotas pagadas (jun-2025 a nov-2026). La numeración de la hoja está repetida (11/36 y luego 9/36): confirmar con el banco."
+    "nota": "La numeración de cuotas en la hoja está repetida: confirmar con el banco."
    },
    {
     "deuda": "Préstamo Maty",
@@ -1182,5 +1182,167 @@
    ]
   },
   "interes_informal_mes": 300000
- }
+ },
+ "costos_fijos": [
+  {
+   "label": "Sueldos",
+   "valores": [
+    9000000,
+    2000000,
+    5500000,
+    5500000,
+    5967768,
+    5500000,
+    5500000,
+    5500000,
+    5500000,
+    5500000,
+    5500000,
+    5500000,
+    5745161,
+    5900000,
+    5900000
+   ]
+  },
+  {
+   "label": "Marketing y web",
+   "valores": [
+    648387,
+    940000,
+    550000,
+    1247931,
+    700000,
+    700000,
+    700000,
+    1650000,
+    1450000,
+    1610000,
+    1440000,
+    1577225,
+    1591500,
+    1500000,
+    1500000
+   ]
+  },
+  {
+   "label": "Vehículos (cuota, TAG, mantención)",
+   "valores": [
+    208497,
+    420000,
+    420000,
+    420000,
+    208497,
+    2165000,
+    420000,
+    870000,
+    870000,
+    870000,
+    962965,
+    1452011,
+    1409784,
+    892175,
+    420000
+   ]
+  },
+  {
+   "label": "Casa piloto Génova",
+   "valores": [
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000,
+    700000
+   ]
+  },
+  {
+   "label": "Oficina",
+   "valores": [
+    365000,
+    365000,
+    365000,
+    365000,
+    365000,
+    365000,
+    365000,
+    392000,
+    392000,
+    392000,
+    392000,
+    392000,
+    392000,
+    392000,
+    392000
+   ]
+  },
+  {
+   "label": "Software y telefonía",
+   "valores": [
+    223000,
+    23000,
+    123000,
+    123000,
+    123000,
+    123000,
+    123000,
+    173000,
+    173000,
+    173000,
+    173000,
+    173000,
+    173000,
+    173000,
+    173000
+   ]
+  },
+  {
+   "label": "Contador, abogado, banco e impuestos",
+   "valores": [
+    477500,
+    37500,
+    98500,
+    87500,
+    507500,
+    87500,
+    87500,
+    90000,
+    90000,
+    90000,
+    90000,
+    90000,
+    90000,
+    90000,
+    90000
+   ]
+  },
+  {
+   "label": "Otros gastos generales",
+   "valores": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    240840,
+    0,
+    0
+   ]
+  }
+ ]
 }

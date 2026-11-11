@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import Layout from "../components/Layout";
+import { TendenciaDeuda } from "../components/Evolutivo";
 
 const fmt = (n) => (n < 0 ? "-$" : "$") + Math.abs(Math.round(n || 0)).toLocaleString("es-CL");
 const fmtM = (n) => (n < 0 ? "-$" : "$") + (Math.abs(n || 0) / 1e6).toLocaleString("es-CL", { maximumFractionDigits: 1 }) + " M";
@@ -8,12 +9,18 @@ const pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : null);
 const sum = (arr, i0, i1) => arr.slice(i0, i1).reduce((a, b) => a + b, 0);
 const color = (n) => (n < 0 ? "text-red-400" : "text-green-400");
 
-// Índices de meses en el snapshot: 0..3 = sep–dic 2025, 4..13 = ene–oct 2026, 14 = nov 2026 (parcial)
-const PERIODOS = [
-  { id: "2026", label: "Ene–oct 2026", i0: 4, i1: 14, meses: 10 },
-  { id: "2025", label: "Sep–dic 2025", i0: 0, i1: 4, meses: 4 },
-  { id: "todo", label: "Sep-25 a nov-26", i0: 0, i1: 15, meses: 15 },
-];
+// Períodos calculados desde los meses del archivo (el último mes es parcial).
+function periodos(meses) {
+  const n = meses.length;
+  const anio = meses[n - 1].slice(0, 4);
+  const i0 = meses.findIndex((m) => m.startsWith(anio));
+  const out = [];
+  if (n - 1 - i0 > 0) out.push({ id: "anio", label: `${anio} (meses cerrados)`, i0, i1: n - 1, meses: n - 1 - i0 });
+  const u = Math.max(0, n - 13);
+  out.push({ id: "12m", label: "Últimos 12 meses cerrados", i0: u, i1: n - 1, meses: n - 1 - u });
+  out.push({ id: "todo", label: `Todo (${meses[0].split(" ")[1]}-${meses[0].slice(2, 4)} a hoy)`, i0: 0, i1: n, meses: n });
+  return out;
+}
 
 export default function Finanzas() {
   const [data, setData] = useState(null);
@@ -58,6 +65,7 @@ export default function Finanzas() {
 }
 
 function Resultado({ d }) {
+  const PERIODOS = periodos(d.meses);
   const [p, setP] = useState(PERIODOS[0]);
   const [mesSel, setMesSel] = useState(null);
   const L = Object.fromEntries(d.resultado.map((x) => [x.clave, x.valores]));
@@ -102,7 +110,7 @@ function Resultado({ d }) {
           return (
             <button key={m} onClick={() => setMesSel(mesSel === i ? null : i)} className="w-full text-left">
               <div className="flex items-center gap-2 text-xs">
-                <span className="w-16 text-sinan-muted">{m}{i === 14 ? "*" : ""}</span>
+                <span className="w-16 text-sinan-muted">{m}{i === d.meses.length - 1 ? "*" : ""}</span>
                 <div className="flex-1 h-3 bg-sinan-bg rounded relative overflow-hidden">
                   <div className={`h-3 rounded ${neto < 0 ? "bg-red-500/70" : "bg-green-500/70"}`}
                     style={{ width: `${(Math.abs(neto) / max) * 100}%` }} />
@@ -122,7 +130,7 @@ function Resultado({ d }) {
             </button>
           );
         })}
-        <p className="text-sinan-muted text-xs pt-1">* nov-2026 parcial. Toca un mes para ver el detalle.</p>
+        <p className="text-sinan-muted text-xs pt-1">* mes en curso, parcial. Toca un mes para ver el detalle.</p>
       </div>
 
       <h2 className="text-sinan-text font-semibold text-sm pt-2">Fuera del resultado (informativo)</h2>
@@ -141,7 +149,7 @@ function Resultado({ d }) {
 function Obras({ d }) {
   return (
     <div className="space-y-3">
-      <p className="text-sinan-muted text-xs">Cobrado y pagado entre sep-2025 y nov-2026. En obras en curso, un margen alto es cobro adelantado: esa caja financia las etapas que faltan. Olmué y Los Andes quedan fuera: sus ingresos no están registrados completos.</p>
+      <p className="text-sinan-muted text-xs">Cobrado y pagado desde sep-2025. En obras en curso, un margen alto es cobro adelantado: esa caja financia las etapas que faltan. Olmué y Los Andes quedan fuera: sus ingresos no están registrados completos.</p>
       {d.obras.map((o) => {
         const m = o.ingresos - o.costos;
         const p = pct(m, o.ingresos);
@@ -192,19 +200,9 @@ function Deudas({ d }) {
       </div>
 
       <h2 className="text-sinan-text font-semibold text-sm">Detalle por deuda</h2>
-      {registro.filter((r) => r.suma).map((r) => (
-        <div key={r.deuda} className="card">
-          <div className="flex justify-between items-baseline">
-            <span className="text-sinan-text text-sm font-semibold">{r.deuda}</span>
-            <span className="text-gold-500 text-sm font-semibold whitespace-nowrap">{fmt(r.saldo)}</span>
-          </div>
-          <p className="text-sinan-muted text-xs mt-1">
-            {r.tipo}
-            {r.cuota ? ` · cuota ${fmt(r.cuota)} · ${r.cuotas_pagadas} de ${r.cuotas_total} pagadas` : ""}
-            {r.interes_mes ? ` · interés ${fmt(r.interes_mes)}/mes` : ""}
-          </p>
-          {r.nota && <p className="text-sinan-muted text-xs mt-1">{r.nota}</p>}
-        </div>
+      {registro.map((r, k) => ({ r, v: evolucion.por_deuda[k]?.valores })).filter(({ r }) => r.suma).map(({ r, v }) => (
+        <TendenciaDeuda key={r.deuda} nombre={r.deuda} meses={evolucion.meses} valores={v}
+          detalle={[r.tipo, r.cuota ? `cuota ${fmt(r.cuota)} · ${r.cuotas_pagadas} de ${r.cuotas_total} pagadas` : "", r.interes_mes ? `interés ${fmt(r.interes_mes)}/mes` : "", r.nota].filter(Boolean).join(" · ")} />
       ))}
       <h2 className="text-sinan-text font-semibold text-sm">Pagadas o reemplazadas (no suman)</h2>
       {registro.filter((r) => !r.suma).map((r) => (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import Layout from "../components/Layout";
+import { BarrasMes, TendenciaDeuda, fmtM } from "../components/Evolutivo";
 
 // Estado de resultado de un mes, con la misma foto validada que la pestaña Finanzas
 // (crm/data/finanzas.json, solo admin).
@@ -50,6 +51,12 @@ export default function EstadoResultados() {
             </select>
           </div>
 
+          <h2 className="text-sinan-muted text-xs uppercase tracking-wider mb-2">Resultado neto mes a mes</h2>
+          <div className="card mb-5">
+            <BarrasMes meses={data.meses} valores={L.resultado_neto} parcialUltimo onSelect={setI} seleccionado={i} />
+            <p className="text-sinan-muted text-xs mt-2">Toca un mes para ver su detalle abajo. El último mes es parcial.</p>
+          </div>
+
           <div className={`card mb-5 ${neto >= 0 ? "border-green-700/40" : "border-red-700/40"}`}>
             <div className="text-center">
               <div className="text-sinan-muted text-xs uppercase tracking-wider mb-1">Resultado neto</div>
@@ -69,6 +76,12 @@ export default function EstadoResultados() {
               </div>
             </div>
           </div>
+
+          <CostosFijosVariables d={data} i={i} setI={setI} />
+
+          <DeudaEvolucion d={data.deudas} />
+
+          <div className="mt-6" />
 
           <h2 className="text-sinan-muted text-xs uppercase tracking-wider mb-2">Por obra</h2>
           <div className="flex flex-col gap-3 mb-5">
@@ -130,11 +143,131 @@ export default function EstadoResultados() {
             ))}
           </div>
 
+
           <p className="text-sinan-muted text-xs mt-6 leading-relaxed">
             {ultimo ? "Mes en curso: datos parciales. " : ""}Mes = fecha de pago o cobro. Corte {data.corte}.
           </p>
         </>
       )}
     </Layout>
+  );
+}
+
+function DeudaEvolucion({ d }) {
+  const { meses, total, por_deuda } = d.evolucion;
+  const n = total.length;
+  const cambios = total.map((t, k) => (k === 0 ? 0 : -(t - total[k - 1])));
+  const activas = por_deuda
+    .map((p, k) => ({ ...p, reg: d.registro[k] }))
+    .filter((p) => p.reg && p.reg.suma);
+  return (
+    <>
+      <h2 className="text-sinan-muted text-xs uppercase tracking-wider mt-6 mb-2">Deuda total</h2>
+      <div className="card mb-3">
+        <div className="flex justify-between items-baseline">
+          <span className="text-sinan-text text-2xl font-bold">{fmtM(total[n - 1])}</span>
+          <span className={`text-sm ${total[n - 1] - total[n - 2] <= 0 ? "text-green-400" : "text-red-400"}`}>
+            {total[n - 1] - total[n - 2] <= 0 ? "▼ bajó" : "▲ subió"} {fmtM(Math.abs(total[n - 1] - total[n - 2]))} este mes
+          </span>
+        </div>
+        <div className="flex items-end gap-1 h-20 mt-3">
+          {total.map((t, k) => (
+            <div key={k} className="flex-1 bg-gold-500/70 rounded-t-sm" style={{ height: `${Math.max(2, (t / Math.max(...total)) * 100)}%` }} />
+          ))}
+        </div>
+        <div className="flex justify-between text-[10px] text-sinan-muted mt-1">
+          <span>{meses[0]}</span><span>{meses[n - 1]}</span>
+        </div>
+        <p className="text-sinan-muted text-xs mt-3 mb-1">Cuánto bajó (verde) o subió (rojo) la deuda cada mes:</p>
+        <BarrasMes meses={meses} valores={cambios} />
+      </div>
+      <h2 className="text-sinan-muted text-xs uppercase tracking-wider mt-5 mb-2">Créditos y deudas, uno por uno</h2>
+      <div className="flex flex-col gap-3">
+        {activas.map((p) => (
+          <TendenciaDeuda key={p.deuda} nombre={p.deuda} meses={meses} valores={p.valores}
+            detalle={p.reg.cuota ? `Cuota ${fmt(p.reg.cuota)} · ${p.reg.cuotas_pagadas} de ${p.reg.cuotas_total} pagadas` : p.reg.interes_mes ? `Interés ${fmt(p.reg.interes_mes)}/mes que se suma` : ""} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+// Costos fijos (estructura de la empresa) vs variables (costo de las obras), con su evolución.
+function CostosFijosVariables({ d, i, setI }) {
+  const n = d.meses.length;
+  const cerrados = n - 1; // el último mes es parcial
+  const fijos = d.costos_fijos || [];
+  const totalFijo = d.meses.map((_, k) => fijos.reduce((s, c) => s + c.valores[k], 0));
+  const variable = d.resultado.find((x) => x.clave === "costo_obras").valores;
+  const ingresos = d.resultado.find((x) => x.clave === "ingresos").valores;
+  const prom = (arr, a, b) => { const s = arr.slice(Math.max(0, a), b); return s.length ? s.reduce((x, y) => x + y, 0) / s.length : 0; };
+  const u3 = prom(totalFijo, cerrados - 3, cerrados);
+  const p3 = prom(totalFijo, cerrados - 6, cerrados - 3);
+  const varPct = p3 ? Math.round(((u3 - p3) / p3) * 1000) / 10 : null;
+  const pctVar = (a, b) => { const ing = prom(ingresos, a, b); return ing ? Math.round((prom(variable, a, b) / ing) * 100) : null; };
+  const tend = (c) => {
+    const a = prom(c.valores, cerrados - 3, cerrados), b = prom(c.valores, cerrados - 6, cerrados - 3);
+    return a - b;
+  };
+  return (
+    <>
+      <h2 className="text-sinan-muted text-xs uppercase tracking-wider mt-6 mb-2">Costos fijos mensuales (estructura)</h2>
+      <div className="card mb-3">
+        <div className="flex justify-between items-baseline gap-2">
+          <div>
+            <div className="text-sinan-muted text-xs">Promedio últimos 3 meses</div>
+            <div className="text-sinan-text text-2xl font-bold">{fmtM(u3)}<span className="text-sm text-sinan-muted font-normal"> /mes</span></div>
+          </div>
+          {varPct != null && (
+            <span className={`text-sm text-right ${varPct > 0 ? "text-red-400" : "text-green-400"}`}>
+              {varPct > 0 ? "▲ subiendo" : "▼ bajando"} {Math.abs(varPct)}%<br />
+              <span className="text-sinan-muted text-xs">vs 3 meses anteriores</span>
+            </span>
+          )}
+        </div>
+        <div className="mt-3">
+          <BarrasMes meses={d.meses} valores={totalFijo} neutro parcialUltimo onSelect={setI} seleccionado={i} />
+        </div>
+        <div className="mt-3 space-y-1.5">
+          <div className="flex justify-between text-[11px] text-sinan-muted"><span>Categoría</span><span>{d.meses[i]} · tendencia</span></div>
+          {fijos.map((c) => {
+            const t = tend(c);
+            return (
+              <div key={c.label} className="flex justify-between text-sm gap-2">
+                <span className="text-sinan-muted">{c.label}</span>
+                <span className="whitespace-nowrap text-sinan-text">
+                  {fmt(c.valores[i])}{" "}
+                  <span className={t > 50000 ? "text-red-400" : t < -50000 ? "text-green-400" : "text-sinan-muted"}>{t > 50000 ? "▲" : t < -50000 ? "▼" : "="}</span>
+                </span>
+              </div>
+            );
+          })}
+          <div className="flex justify-between text-sm font-semibold border-t border-sinan-border pt-1.5">
+            <span className="text-sinan-text">Total fijos</span><span className="text-sinan-text">{fmt(totalFijo[i])}</span>
+          </div>
+        </div>
+        <p className="text-sinan-muted text-xs mt-2">Sueldos, marketing, oficina, vehículos y otros gastos de la empresa. No incluye intereses de créditos.</p>
+      </div>
+
+      <h2 className="text-sinan-muted text-xs uppercase tracking-wider mt-5 mb-2">Costos variables (obras)</h2>
+      <div className="card mb-3">
+        <div className="flex justify-between items-baseline gap-2">
+          <div>
+            <div className="text-sinan-muted text-xs">Promedio últimos 3 meses</div>
+            <div className="text-sinan-text text-2xl font-bold">{fmtM(prom(variable, cerrados - 3, cerrados))}<span className="text-sm text-sinan-muted font-normal"> /mes</span></div>
+          </div>
+          {pctVar(cerrados - 3, cerrados) != null && (
+            <span className="text-sm text-right text-sinan-text">
+              {pctVar(cerrados - 3, cerrados)}% de lo cobrado<br />
+              <span className="text-sinan-muted text-xs">antes: {pctVar(cerrados - 6, cerrados - 3) ?? "—"}%</span>
+            </span>
+          )}
+        </div>
+        <div className="mt-3">
+          <BarrasMes meses={d.meses} valores={variable} neutro parcialUltimo onSelect={setI} seleccionado={i} />
+        </div>
+        <p className="text-sinan-muted text-xs mt-2">Materiales, mano de obra y subcontratos pagados en las obras. Suben y bajan con el avance de cada obra.</p>
+      </div>
+    </>
   );
 }

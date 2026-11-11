@@ -1,0 +1,46 @@
+{
+  "_nota": "Reglas de negocio confirmadas por Gary. Las usa crm/tools/actualizar_finanzas.py. Cambiar aquí, no en el código.",
+  "inicio_resultado": "2025-09",
+  "inicio_deudas": "2025-01",
+  "obras_resultado": [
+    { "nombre": "Peñaflor (Islevy + Maribel)", "casas": ["Peñaflor - 2 Casas"], "proyectos": ["Casa Islevy · Peñaflor", "Casa Maribel"], "tarjeta": "Peñaflor (Islevy + Maribel)", "db": ["Peñaflor (Islevy)", "Peñaflor (Maribel)"], "contrato": null },
+    { "nombre": "Rancagua (Camilo)", "casas": ["Camilo - Rancagua"], "proyectos": ["Casa Subiabre · Rancagua"], "tarjeta": "Rancagua (Subiabre)", "db": ["Rancagua (Subiabre)"] },
+    { "nombre": "Codegua (Rodrigo Mardones)", "casas": ["Rodrigo - Codegua"], "proyectos": ["Casa Mardones · Codegua"], "tarjeta": "Codegua (Mardones)", "db": ["Codegua (Mardones)"] },
+    { "nombre": "Padre Hurtado (Gonzalo)", "casas": ["Gonzalo - P. Hurtado"], "proyectos": ["Casa Parraguez · Padre Hurtado"], "tarjeta": "Padre Hurtado (Parraguez)", "db": ["Padre Hurtado (Parraguez)"] },
+    { "nombre": "Cabildo (Ricardo)", "casas": ["Ricardo - Cabildo"], "proyectos": ["Casa Escobar · Cabildo"], "tarjeta": "Cabildo (Escobar)", "db": ["Cabildo (Escobar)"] }
+  ],
+  "obras_fuera_resultado": {
+    "_nota": "Decisión de Gary 11-11-2026: sus ingresos no están registrados completos. Se muestran solo como informativo.",
+    "Olmué (Ricardo)": { "casas": ["Olmue Ricardo", "Adicional Olmue"], "pagadores": ["Ricardo Javier"] },
+    "Los Andes (Natalia Saldaña)": { "casas": ["Casa Natalia Saldaña"], "pagadores": ["Natalia Pauli"] }
+  },
+  "otras_obras_casas": {
+    "Cristian - Calera Tango": "Calera de Tango (Cristian Lagos)",
+    "Casa 140 m2": "Calera de Tango (Cristian Lagos)",
+    "Casa Andres Prado": "Chicureo (Andrés Prado)",
+    "Walter - Quilpue": "Pre-obra: Quilpué (Walter)",
+    "Casa Ruben": "Pre-obra: Los Andes (Rubén)",
+    "Gonzalo Rosas": "Pre-obra: Gonzalo Rosas",
+    "Casa Maitencillo Grace": "Pre-obra: Maitencillo (Grace)"
+  },
+  "ingresos_reglas": {
+    "arquitectura_codegua": { "proyecto": "Casa Mardones · Codegua", "meses": ["2026-03"], "ids": ["M275A"] },
+    "arquitectura_parraguez": { "proyecto": "Casa Parraguez · Padre Hurtado", "hasta": "2026-08-11", "monto_menor_a": 2000000 },
+    "walter": { "proyecto": "Casa Walter · Quilpué", "mecanica_suelos_montos": [2010855] }
+  },
+  "deudas": [
+    { "deuda": "Crédito BCI 60 cuotas (ex \"Crédito 40 MM\")", "tipo": "Banco", "cuota": 1038347, "cuotas_total": 60, "pagadas_antes": 5, "inicio": "2024-08-01", "termino": null, "tasa_mensual": 0.015860776705, "suma": true, "claves": ["Credito 40 MM", "BCI (60", "BCI (21 de 60"], "nota": "Saldo = cuotas que faltan × cuota (incluye intereses futuros)." },
+    { "deuda": "Crédito BCI 30 cuotas", "tipo": "Banco", "cuota": 1198000, "cuotas_total": 30, "pagadas_antes": 3, "inicio": "2026-04-01", "termino": null, "tasa_mensual": 0.015860776705, "suma": true, "claves": ["BCI ( 30", "BCI (4 de 30"], "nota": "Cuotas 1 a 3 pagadas (confirmado 11-11-2026). Tasa supuesta igual al BCI 60." },
+    { "deuda": "Crédito Jeannette 60 cuotas ($1.750.000)", "tipo": "Familiar", "cuota": 1750000, "cuotas_total": 60, "pagadas_antes": 0, "inicio": "2026-04-01", "termino": null, "tasa_mensual": 0.015860776705, "suma": true, "claves": ["Jeannette $1.750.000"], "nota": "Crédito pedido por Jeannette para sus deudas y las de Gary. Cuota total $3.500.000: SINAN CHILE paga solo su mitad, $1.750.000." },
+    { "deuda": "Crédito 35 MM (Jeannette)", "tipo": "Familiar", "cuota": 810000, "cuotas_total": 59, "pagadas_antes": 6, "inicio": "2024-07-01", "termino": "2026-04-01", "tasa_mensual": 0.011021247774, "suma": true, "claves": ["Credito 35 MM"], "nota": "Reemplazado por el Crédito Jeannette 60 cuotas desde abr-2026." },
+    { "deuda": "Camioneta Maxus 36 cuotas", "tipo": "Vehículo", "cuota": 420000, "cuotas_total": 36, "pagadas_antes": 0, "inicio": "2025-06-01", "termino": null, "tasa_mensual": null, "suma": true, "claves": ["Camioneta Maxus"], "excluir": ["Mantención", "Transferencia", "Arreglo"], "nota": "La numeración de cuotas en la hoja está repetida: confirmar con el banco." },
+    { "deuda": "Préstamo Maty", "tipo": "Informal", "capital": 10000000, "interes_mes": 100000, "inicio": "2026-08-05", "termino": null, "suma": true, "nota": "Interés $100.000 mensual que no se paga: se suma a la deuda cada mes." },
+    { "deuda": "Préstamo Luxo", "tipo": "Informal", "capital": 10000000, "interes_mes": 100000, "inicio": "2026-08-12", "termino": null, "suma": true, "nota": "Recibido $10.300.000 (ago-2026). Interés $100.000 mensual que no se paga: se suma a la deuda cada mes." },
+    { "deuda": "Préstamo médico Jeannette", "tipo": "Informal", "capital": 18000000, "interes_mes": 100000, "inicio": "2026-05-04", "termino": null, "suma": true, "nota": "Interés $100.000 mensual que no se paga: se suma a la deuda cada mes." },
+    { "deuda": "Crédito Cuxo / Marcos Castro (6 cuotas)", "tipo": "Informal", "cuota": 1775503, "cuotas_total": 6, "pagadas_antes": 0, "inicio": "2025-01-01", "termino": null, "tasa_mensual": null, "suma": false, "claves": ["Cuxo", "Marcos Castro"], "nota": "Pagado completo." },
+    { "deuda": "Tarjeta de crédito Jeannette", "tipo": "Familiar", "capital": 16895997, "inicio": "2024-10-01", "termino": null, "suma": false, "nota": "Pagada." },
+    { "deuda": "Préstamo Andrés Guerra", "tipo": "Informal", "capital": 10000000, "inicio": "2025-08-23", "termino": "2026-02-19", "suma": false, "nota": "Devuelto completo." },
+    { "deuda": "Préstamo tío Maty (2025)", "tipo": "Informal", "capital": 7000000, "inicio": "2025-10-01", "termino": "2025-12-30", "suma": false, "nota": "Devuelto completo." },
+    { "deuda": "Cuenta mamá", "tipo": "Familiar", "capital": 9112971, "inicio": "2024-09-11", "termino": null, "suma": false, "nota": "Pagada." }
+  ]
+}
