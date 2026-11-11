@@ -105,10 +105,12 @@ app.post("/webhook", async (req, res) => {
 let diagCache = null;
 app.get("/diag", async (req, res) => {
   if (diagCache && Date.now() - diagCache.t < 5 * 60 * 1000) return res.json(diagCache.r);
-  const r = { node: process.version, modelo: config.ANTHROPIC_MODEL, timestamp: new Date().toISOString() };
+  const k = (config.ANTHROPIC_API_KEY || "").trim();
+  const r = { node: process.version, modelo: config.ANTHROPIC_MODEL, timestamp: new Date().toISOString(),
+    clave: { largo: k.length, empieza_bien: k.startsWith("sk-ant-api"), espacios: k !== (config.ANTHROPIC_API_KEY || ""), termina_en: k.slice(-4) } };
   try {
     const Anthropic = require("@anthropic-ai/sdk");
-    const c = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
+    const c = new Anthropic({ apiKey: k });
     await c.messages.create({ model: config.ANTHROPIC_MODEL, max_tokens: 5, messages: [{ role: "user", content: "ok" }] });
     r.claude = "OK";
   } catch (e) { r.claude = `ERROR ${e.status || ""} ${e.message}`.slice(0, 300); }

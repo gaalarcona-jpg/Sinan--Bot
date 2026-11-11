@@ -1,7 +1,7 @@
 const Anthropic = require("@anthropic-ai/sdk");
 const config = require("./config");
 
-const client = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
+const client = new Anthropic({ apiKey: (config.ANTHROPIC_API_KEY || "").trim() });
 
 const INTENTS = [
   "REGISTRAR_RENDICION",
