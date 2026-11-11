@@ -1,6 +1,6 @@
 {
  "corte": "2026-11-11",
- "fuente": "Planilla SINAN CHILE – Estado de Costos 2025-2026 (costos: Pagos Mensuales Sinan; ingresos: cartola Santander desde sep-2025). Arquitectura fuera del resultado.",
+ "fuente": "Planilla SINAN CHILE – Estado de Costos 2025-2026 (costos: Pagos Mensuales Sinan; ingresos: cartola Santander desde sep-2025). Arquitectura fuera del resultado. Deudas confirmadas por Gary el 11-11-2026. Intereses de créditos estimados con la tasa implícita de cada crédito (BCI 60: 1,59% mensual; 35 MM: 1,10%; BCI 30 y Jeannette 60 con 1,59%).",
  "meses": [
   "2025-09 sep",
   "2025-10 oct",
@@ -131,24 +131,24 @@
   },
   {
    "clave": "creditos",
-   "label": "Cuotas de créditos",
+   "label": "Intereses de créditos (estimado)",
    "tipo": "linea",
    "valores": [
-    1848347,
-    1848347,
-    1848347,
-    1848347,
-    1848347,
-    1848347,
-    1848347,
-    3986347,
-    3986347,
-    3986347,
-    3986347,
-    3986347,
-    3986347,
-    3986347,
-    3986347
+    858121,
+    844810,
+    831313,
+    817628,
+    803755,
+    789687,
+    775425,
+    1968971,
+    1936974,
+    1904469,
+    1871449,
+    1837906,
+    1803829,
+    1769213,
+    1734047
    ]
   },
   {
@@ -156,21 +156,21 @@
    "label": "Resultado neto",
    "tipo": "clave",
    "valores": [
-    5181204,
-    33577190,
-    11582307,
-    873108,
-    -12079484,
-    -16231625,
-    23950122,
-    -4788659,
-    30664643,
-    -23884566,
-    -19852403,
-    16728281,
-    -4860720,
-    13258440,
-    5085444
+    6171430,
+    34580727,
+    12599341,
+    1903827,
+    -11034892,
+    -15172965,
+    25023044,
+    -2771283,
+    32714016,
+    -21802688,
+    -17737505,
+    18876722,
+    -2678202,
+    15475574,
+    7337744
    ]
   }
  ],
@@ -578,6 +578,26 @@
     0,
     0
    ]
+  },
+  {
+   "label": "Abono a capital de créditos (estimado; baja la deuda, no es gasto)",
+   "valores": [
+    990226,
+    1003537,
+    1017034,
+    1030719,
+    1044592,
+    1058660,
+    1072922,
+    2017376,
+    2049373,
+    2081878,
+    2114898,
+    2148441,
+    2182518,
+    2217134,
+    2252300
+   ]
   }
  ],
  "obras": [
@@ -646,7 +666,7 @@
     "cuotas_total": 30,
     "cuotas_pagadas": 11,
     "interes_mes": null,
-    "nota": "Primera cuota registrada: \"4 de 30\" (02-04-2026). Las cuotas 1 a 3 no están en la hoja de pagos: confirmar si se pagaron."
+    "nota": "Cuotas 1 a 3 pagadas (confirmado 11-11-2026)."
    },
    {
     "deuda": "Crédito Jeannette 60 cuotas ($1.750.000)",
@@ -657,18 +677,18 @@
     "cuotas_total": 60,
     "cuotas_pagadas": 8,
     "interes_mes": null,
-    "nota": "Cuota 1 de 60 pagada el 02-04-2026."
+    "nota": "Crédito pedido por Jeannette para sus deudas y las de Gary. Cuota total $3.500.000: SINAN CHILE paga solo su mitad, $1.750.000."
    },
    {
     "deuda": "Crédito 35 MM (Jeannette)",
     "tipo": "Familiar",
-    "suma": true,
+    "suma": false,
     "saldo": 0,
     "cuota": 810000,
     "cuotas_total": 59,
     "cuotas_pagadas": 21,
     "interes_mes": null,
-    "nota": "Supuesto: se pagó hasta mar-2026 y fue reemplazado por el Crédito Jeannette 60 cuotas (empieza el mismo mes). CONFIRMAR."
+    "nota": "Reemplazado por el Crédito Jeannette 60 cuotas desde abr-2026."
    },
    {
     "deuda": "Camioneta Maxus 36 cuotas",
@@ -685,56 +705,56 @@
     "deuda": "Préstamo Maty",
     "tipo": "Informal",
     "suma": true,
-    "saldo": 10000000,
+    "saldo": 10300000,
     "cuota": null,
     "cuotas_total": null,
     "cuotas_pagadas": null,
     "interes_mes": 100000,
-    "nota": "Interés $100.000 mensual. Ningún pago de interés aparece en la hoja de pagos."
+    "nota": "Interés $100.000 mensual que no se paga: se suma a la deuda cada mes."
    },
    {
     "deuda": "Préstamo Luxo",
     "tipo": "Informal",
     "suma": true,
-    "saldo": 10000000,
+    "saldo": 10300000,
     "cuota": null,
     "cuotas_total": null,
     "cuotas_pagadas": null,
     "interes_mes": 100000,
-    "nota": "Recibido $10.300.000 en la cartola (ago-2026). Ningún pago de interés aparece en la hoja de pagos."
+    "nota": "Recibido $10.300.000 (ago-2026). Interés $100.000 mensual que no se paga: se suma a la deuda cada mes."
    },
    {
     "deuda": "Préstamo médico Jeannette",
     "tipo": "Informal",
     "suma": true,
-    "saldo": 18000000,
+    "saldo": 18600000,
     "cuota": null,
     "cuotas_total": null,
     "cuotas_pagadas": null,
     "interes_mes": 100000,
-    "nota": "Interés $100.000 mensual (0,56%). Ningún pago de interés aparece en la hoja de pagos."
+    "nota": "Interés $100.000 mensual que no se paga: se suma a la deuda cada mes."
    },
    {
     "deuda": "Crédito Cuxo / Marcos Castro (6 cuotas)",
     "tipo": "Informal",
     "suma": false,
-    "saldo": 7102012,
+    "saldo": 0,
     "cuota": 1775503,
     "cuotas_total": 6,
     "cuotas_pagadas": 2,
     "interes_mes": null,
-    "nota": "Solo 2 de 6 cuotas en la hoja (feb-2025). Si quedan 4, son $7.102.012. Cambiar a SÍ si sigue vigente."
+    "nota": "Pagado completo."
    },
    {
     "deuda": "Tarjeta de crédito Jeannette",
     "tipo": "Familiar",
     "suma": false,
-    "saldo": 16895997,
+    "saldo": 0,
     "cuota": null,
     "cuotas_total": null,
     "cuotas_pagadas": null,
     "interes_mes": null,
-    "nota": "Figura \"pendiente\" en la pestaña antigua de préstamos. Cambiar a SÍ si sigue vigente."
+    "nota": "Pagada."
    },
    {
     "deuda": "Préstamo Andrés Guerra",
@@ -745,7 +765,7 @@
     "cuotas_total": null,
     "cuotas_pagadas": null,
     "interes_mes": null,
-    "nota": "Pestaña antigua: vencía 19-02-2026. Cambiar a SÍ y borrar la fecha de término si no se ha pagado."
+    "nota": "Devuelto completo."
    },
    {
     "deuda": "Préstamo tío Maty (2025)",
@@ -756,18 +776,18 @@
     "cuotas_total": null,
     "cuotas_pagadas": null,
     "interes_mes": null,
-    "nota": "Pestaña antigua: vencía 30-12-2025. Cambiar a SÍ si no se ha pagado."
+    "nota": "Devuelto completo."
    },
    {
     "deuda": "Cuenta mamá",
     "tipo": "Familiar",
     "suma": false,
-    "saldo": 9112971,
+    "saldo": 0,
     "cuota": null,
     "cuotas_total": null,
     "cuotas_pagadas": null,
     "interes_mes": null,
-    "nota": "Pestaña antigua: saldo $9.112.971. Cambiar a SÍ si sigue vigente."
+    "nota": "Pagada."
    }
   ],
   "evolucion": {
@@ -814,12 +834,12 @@
     83233880,
     185393533,
     198987186,
-    194580839,
-    190174492,
-    205768145,
-    201361798,
-    196955451,
-    192549104
+    194680839,
+    190374492,
+    206068145,
+    201961798,
+    197855451,
+    193749104
    ],
    "aportes_gary": [
     0,
@@ -1010,9 +1030,9 @@
       0,
       0,
       10000000,
-      10000000,
-      10000000,
-      10000000
+      10100000,
+      10200000,
+      10300000
      ]
     },
     {
@@ -1038,9 +1058,9 @@
       0,
       0,
       10000000,
-      10000000,
-      10000000,
-      10000000
+      10100000,
+      10200000,
+      10300000
      ]
     },
     {
@@ -1063,12 +1083,12 @@
       0,
       0,
       18000000,
-      18000000,
-      18000000,
-      18000000,
-      18000000,
-      18000000,
-      18000000
+      18100000,
+      18200000,
+      18300000,
+      18400000,
+      18500000,
+      18600000
      ]
     },
     {

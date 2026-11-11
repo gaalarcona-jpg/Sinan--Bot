@@ -175,7 +175,7 @@ function Deudas({ d }) {
         <Kpi label="Deuda total hoy" valor={fmtM(t[n - 1])} />
         <Kpi label="Último mes" valor={fmtM(t[n - 1] - t[n - 2])} cls={color(-(t[n - 1] - t[n - 2]))} />
         <Kpi label="Desde ene-2025" valor={fmtM(t[n - 1] - t[0])} cls={color(-(t[n - 1] - t[0]))} />
-        <Kpi label="Interés informal / mes" valor={fmt(interes_informal_mes)} />
+        <Kpi label="Interés que se acumula / mes" valor={fmt(interes_informal_mes)} />
       </div>
 
       <h2 className="text-sinan-text font-semibold text-sm">Evolución de la deuda</h2>
@@ -206,7 +206,7 @@ function Deudas({ d }) {
           {r.nota && <p className="text-sinan-muted text-xs mt-1">{r.nota}</p>}
         </div>
       ))}
-      <h2 className="text-sinan-text font-semibold text-sm">Por confirmar (no suman)</h2>
+      <h2 className="text-sinan-text font-semibold text-sm">Pagadas o reemplazadas (no suman)</h2>
       {registro.filter((r) => !r.suma).map((r) => (
         <div key={r.deuda} className="card opacity-70">
           <div className="flex justify-between">
