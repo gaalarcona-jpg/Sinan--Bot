@@ -141,7 +141,7 @@ function Resultado({ d }) {
 function Obras({ d }) {
   return (
     <div className="space-y-3">
-      <p className="text-sinan-muted text-xs">Cobrado y pagado entre sep-2025 y nov-2026. En obras en curso, un margen alto es cobro adelantado: esa caja financia las etapas que faltan.</p>
+      <p className="text-sinan-muted text-xs">Cobrado y pagado entre sep-2025 y nov-2026. En obras en curso, un margen alto es cobro adelantado: esa caja financia las etapas que faltan. Olmué y Los Andes quedan fuera: sus ingresos no están registrados completos.</p>
       {d.obras.map((o) => {
         const m = o.ingresos - o.costos;
         const p = pct(m, o.ingresos);
